@@ -465,7 +465,7 @@ class SettingsDialog(QDialog):
     # ------------------------------------------------------------------
     def _open_root(self) -> None:
         try:
-            os.startfile(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            os.startfile(cfg_mod.ROOT)
         except Exception:
             pass
 

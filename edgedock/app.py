@@ -7,7 +7,7 @@ import sys
 import winreg
 
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QTimer
-from PySide6.QtGui import (QAction, QColor, QIcon, QLinearGradient, QPainter,
+from PySide6.QtGui import (QColor, QIcon, QLinearGradient, QPainter,
                            QPainterPath, QPen, QPixmap)
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 

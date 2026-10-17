@@ -154,19 +154,23 @@ class Config:
         items.insert(new, items.pop(idx))
         return True
 
-    def add_item(self, path: str, name: str = "") -> bool:
-        """把一个磁盘上的文件（.lnk / .exe / .url）加进抽屉。"""
-        path = os.path.abspath(path)
-        if self._find(path) >= 0:
+    def _append(self, it: dict) -> bool:
+        """查重 → 记目标 → 入列，两个 add 的公共尾巴。"""
+        if self._find(self.key(it)) >= 0:
             return False
-        # 拖进来的快捷方式/程序用文件名（去扩展名）当显示名，
-        # 否则设置界面里这一行会是空白的。
-        stem = os.path.splitext(os.path.basename(path))[0]
-        it = {"path": path, "appid": "", "name": name or stem, "args": "",
-              "target": "", "workdir": "", "runas": False}
         self._remember_link(it)
         self.items.append(it)
         return True
+
+    def add_item(self, path: str, name: str = "") -> bool:
+        """把一个磁盘上的文件（.lnk / .exe / .url）加进抽屉。"""
+        path = os.path.abspath(path)
+        # 拖进来的快捷方式/程序用文件名（去扩展名）当显示名，
+        # 否则设置界面里这一行会是空白的。
+        stem = os.path.splitext(os.path.basename(path))[0]
+        return self._append({"path": path, "appid": "", "name": name or stem,
+                             "args": "", "target": "", "workdir": "",
+                             "runas": False})
 
     def add_app(self, app: dict) -> bool:
         """把「所有应用」里的一个应用加进抽屉。
@@ -179,13 +183,9 @@ class Config:
         appid = (app.get("appid") or "").strip()
         if not name or not (path or appid):
             return False
-        if self._find(appid or path) >= 0:
-            return False
-        it = {"path": path, "appid": appid, "name": name, "args": "",
-              "target": "", "workdir": "", "runas": False}
-        self._remember_link(it)
-        self.items.append(it)
-        return True
+        return self._append({"path": path, "appid": appid, "name": name,
+                             "args": "", "target": "", "workdir": "",
+                             "runas": False})
 
     def remove_item(self, key: str) -> None:
         idx = self._find(key)
