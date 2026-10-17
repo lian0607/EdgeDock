@@ -44,6 +44,39 @@ def walk(root: str, exts: tuple) -> list[str]:
     return out
 
 
+# Windows 自带的管理工具 / 系统小程序：能打开，但当成「应用」没有意义，
+# 在选择器里只会添乱。按路径里的系统分组名 + 显示名关键词两层认。
+_SYS_DIRS = (
+    # 开始菜单里的系统分组（中英文都认，路径一律按小写比）
+    "windows system", "windows accessories", "windows administrative tools",
+    "windows ease of access", "windows games", "administrative tools",
+    "system tools", "accessories",
+    "windows 系统", "windows 附件", "windows 管理工具", "windows 轻松使用",
+)
+_SYS_WORDS = (
+    "component services", "computer management", "control panel",
+    "character map", "command prompt", "registry editor", "event viewer",
+    "device manager", "task scheduler", "system configuration",
+    "system information", "disk cleanup", "defragment", "dfrgui",
+    "windows defender", "steps recorder", "math input",
+    "组件服务", "计算机管理", "控制面板", "字符映射表", "命令提示符",
+    "注册表编辑器", "事件查看器", "设备管理器", "任务计划程序", "系统配置",
+    "系统信息", "磁盘清理", "磁盘碎片整理", "任务管理器", "步骤记录器",
+)
+
+
+def is_system_tool(app: dict) -> bool:
+    """是不是 Windows 自带的系统工具（控制面板、管理工具那一类）。
+
+    只在选择器里当**可开关的过滤器**用 —— 不在扫描阶段剔除，用户想要照样能加。
+    """
+    low = app.get("name", "").strip().lower()
+    if any(w in low for w in _SYS_WORDS):
+        return True
+    p = (app.get("path") or "").lower()
+    return any(d in p for d in _SYS_DIRS)
+
+
 def scan_apps() -> list[dict]:
     """列出这台机器上能启动的应用，按名字排序。
 

@@ -45,6 +45,7 @@ DEFAULTS = {
     "items": [],               # [{"name","path","appid","args","target","workdir","runas"}]
                                # appid = 「所有应用」里的标识，path = 文件（.lnk/.exe/.url）
                                # 两者至少有一个，appid 优先
+    "hide_sys": True,          # 选择器里默认隐藏 Windows 自带的系统工具
     "seeded": False,
 }
 

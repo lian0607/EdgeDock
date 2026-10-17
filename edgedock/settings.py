@@ -9,8 +9,8 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup,
                                QCheckBox, QComboBox, QDialog, QFileDialog,
                                QFrame, QHBoxLayout, QLabel, QLineEdit,
-                               QListWidget, QListWidgetItem, QPushButton,
-                               QScrollArea, QSizePolicy, QSlider,
+                               QListWidget, QListWidgetItem, QMessageBox,
+                               QPushButton, QScrollArea, QSizePolicy, QSlider,
                                QVBoxLayout, QWidget)
 
 from . import apps as apps_mod
@@ -412,6 +412,14 @@ class SettingsDialog(QDialog):
         self._after_list_change()
 
     def _clear(self) -> None:
+        # 清空没有撤销，条目多的时候误一下就全没了 —— 问一句
+        if self.cfg.items:
+            ret = QMessageBox.question(
+                self, "清空抽屉", "确定要移除抽屉里的全部 %d 个应用吗？"
+                % len(self.cfg.items),
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if ret != QMessageBox.Yes:
+                return
         self.cfg.set_items([])
         self._after_list_change()
 
@@ -507,20 +515,29 @@ class AppPicker(QDialog):
         self.setStyleSheet(theme_mod.settings_qss(self.t))
         self.pool = apps_mod.scan_apps()
         self._chosen = {os.path.normcase(cfg.key(i)) for i in cfg.items}
+        self._chosen_names = {(i.get("name") or "").strip().lower()
+                              for i in cfg.items if i.get("name")}
 
         v = QVBoxLayout(self)
         v.setContentsMargins(18, 16, 18, 16)
         v.setSpacing(10)
 
-        lab = QLabel("勾选要放进抽屉的应用（共 %d 个）" % len(self.pool))
-        lab.setObjectName("Section")
-        v.addWidget(lab)
+        self.lab = QLabel()
+        self.lab.setObjectName("Section")
+        v.addWidget(self.lab)
 
         self.search = QLineEdit()
         self.search.setPlaceholderText("搜索应用名…")
         self.search.setClearButtonEnabled(True)
-        self.search.textChanged.connect(self._filter)
+        self.search.textChanged.connect(self._apply_filter)
         v.addWidget(self.search)
+
+        # 系统工具（控制面板、管理工具那一类）默认不显示 —— 能打开，但没人
+        # 会想把它们放进抽屉。开关状态记进配置，下次打开还保持。
+        self.chk_sys = QCheckBox("隐藏系统工具（控制面板、管理工具之类）")
+        self.chk_sys.setChecked(bool(cfg["hide_sys"]))
+        self.chk_sys.toggled.connect(self._on_hide_sys)
+        v.addWidget(self.chk_sys)
 
         self.list = QListWidget()
         self.list.setIconSize(QSize(22, 22))
@@ -533,7 +550,7 @@ class AppPicker(QDialog):
             item = QListWidgetItem(self._label_of(it))
             item.setData(Qt.UserRole, idx)          # 下标指回 self.pool
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Checked if self._key_of(it) in self._chosen
+            item.setCheckState(Qt.Checked if self._is_chosen(it)
                                else Qt.Unchecked)
             item.setToolTip(it.get("appid") or it.get("path") or "")
             spec = apps_mod.spec_of(it)
@@ -561,6 +578,8 @@ class AppPicker(QDialog):
 
         # 图标是后台分批提取的，好了就把对应那行刷新一下
         store.ready.connect(self._on_icon_ready)
+        # 开场先过一遍过滤：系统工具默认要藏起来，标题里的计数也靠它写
+        self._apply_filter()
         self._specs = [apps_mod.spec_of(it) for it in self.pool]
         # 先补首屏看得见的那些，剩下的等窗口出来了再补 —— 一百多个一起提
         # 会让第一次打开明显发木
@@ -577,6 +596,13 @@ class AppPicker(QDialog):
     def _key_of(app: dict) -> str:
         return os.path.normcase((app.get("appid") or app.get("path") or "").strip())
 
+    def _is_chosen(self, app: dict) -> bool:
+        """这个候选应用在不在抽屉里。键对不上时按名字兜底 —— 应用标识是会
+        随进程注册/注销的（比如 DeepSeek Harness），抽屉里存的可能还是旧键。"""
+        if self._key_of(app) in self._chosen:
+            return True
+        return app["name"].strip().lower() in self._chosen_names
+
     @staticmethod
     def _label_of(app: dict) -> str:
         label = app["name"]
@@ -586,11 +612,26 @@ class AppPicker(QDialog):
             label += "    · %s" % src
         return label
 
-    def _filter(self, text: str) -> None:
-        needle = text.strip().lower()
+    def _apply_filter(self) -> None:
+        needle = self.search.text().strip().lower()
+        hide_sys = self.chk_sys.isChecked()
+        visible = 0
         for i in range(self.list.count()):
             item = self.list.item(i)
-            item.setHidden(bool(needle) and needle not in item.text().lower())
+            it = self.pool[item.data(Qt.UserRole)]
+            hide = ((bool(needle) and needle not in item.text().lower())
+                    or (hide_sys and apps_mod.is_system_tool(it)))
+            item.setHidden(hide)
+            if not hide:
+                visible += 1
+        total = len(self.pool)
+        self.lab.setText("勾选要放进抽屉的应用（共 %d 个%s）"
+                         % (total, "，显示 %d" % visible if visible < total else ""))
+
+    def _on_hide_sys(self, on: bool) -> None:
+        self.cfg["hide_sys"] = bool(on)
+        self.cfg.save()
+        self._apply_filter()
 
     def _on_icon_ready(self, spec: str) -> None:
         dpr = self.devicePixelRatioF() or 1.0
@@ -612,14 +653,40 @@ class AppPicker(QDialog):
                 app = self.pool[item.data(Qt.UserRole)]
                 picked.append(app)
                 keys.add(self._key_of(app))
-        # 原有项保持原顺序（用户可能调过），新勾的按列表顺序往后接
+        # 这次的勾选**管不着**池外条目：应用标识随进程注册的应用（进程一退
+        # 就从「所有应用」里消失）、用户手动加的绿色软件……它们不在候选列表里，
+        # 没被勾上不代表用户不要了，原样保留 —— 之前这里会把它们静默删掉。
+        pool_keys = {self._key_of(a) for a in self.pool}
         out = [it for it in self.cfg.items
-               if os.path.normcase(self.cfg.key(it)) in keys]
+               if os.path.normcase(self.cfg.key(it)) not in pool_keys]
         have = {os.path.normcase(self.cfg.key(it)) for it in out}
+        # 勾上的：老条目按原顺序跟上（用户可能调过序），新条目按列表顺序往后接
+        for it in self.cfg.items:
+            k = os.path.normcase(self.cfg.key(it))
+            if k in keys and k not in have:
+                out.append(it)
+                have.add(k)
         for app in picked:
             if self._key_of(app) not in have:
                 out.append(app)
                 have.add(self._key_of(app))
-        self.cfg.set_items(out)
+        # 同名只留先来的 —— 名字兜底匹配可能让新旧两条重复入列
+        seen_names = set()
+        deduped = []
+        for it in out:
+            low = (it.get("name") or "").strip().lower()
+            if low and low in seen_names:
+                continue
+            if low:
+                seen_names.add(low)
+            deduped.append(it)
+        # 从「非空」清成「空」多半是误触（比如全不选之后顺手点了确定），拦一下
+        if self.cfg.items and not deduped:
+            ret = QMessageBox.question(
+                self, "清空抽屉", "一个应用都没勾 —— 确定要清空抽屉吗？",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if ret != QMessageBox.Yes:
+                return
+        self.cfg.set_items(deduped)
         self.cfg.save()
         self.accept()
