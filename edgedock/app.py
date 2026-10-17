@@ -359,8 +359,11 @@ def run() -> int:
     app.setQuitOnLastWindowClosed(False)
 
     if not winapi.acquire_single_instance():
-        QMessageBox.information(None, "EdgeDock",
-                                "EdgeDock 已经在运行了（请看系统托盘）。")
+        box = QMessageBox(QMessageBox.Information, "EdgeDock",
+                          "EdgeDock 已经在运行了（请看系统托盘）。")
+        # 用户不点确认的话这个框会永远挂着、进程也不退 —— 几秒后自己关掉
+        QTimer.singleShot(3500, box.close)
+        box.exec()
         return 0
 
     winapi.ensure_com()
