@@ -497,6 +497,31 @@ class SettingsDialog(QDialog):
 
 
 # ==========================================================================
+class CheckList(QListWidget):
+    """复选框「一点就中」的应用列表。
+
+    QSS 美化过的列表里，指示器的原生命中判定在**行未选中时**会失灵：
+    第一脚踩下去只把行选中，第二脚才轮到切换勾选 —— 用户看到的就是
+    「点了没反应」。干脆自己接管：按下位置落在行首那一格（画出来的
+    复选框就在那里，约 9~29px）就直接翻状态，不再依赖官方判定。
+    """
+
+    HIT_W = 32          # 行首复选框命中区的宽度
+
+    def mousePressEvent(self, event) -> None:
+        item = self.itemAt(event.position().toPoint())
+        if item is not None and (item.flags() & Qt.ItemIsUserCheckable):
+            dx = event.position().toPoint().x() - self.visualItemRect(item).left()
+            if 0 <= dx <= self.HIT_W:
+                item.setCheckState(
+                    Qt.Unchecked if item.checkState() == Qt.Checked
+                    else Qt.Checked)
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+
+# ==========================================================================
 class AppPicker(QDialog):
     """从系统里挑应用：搜名字、勾选、确定。
 
@@ -539,7 +564,7 @@ class AppPicker(QDialog):
         self.chk_sys.toggled.connect(self._on_hide_sys)
         v.addWidget(self.chk_sys)
 
-        self.list = QListWidget()
+        self.list = CheckList()
         self.list.setIconSize(QSize(22, 22))
         self.list.setUniformItemSizes(True)
         dpr = self.devicePixelRatioF() or 1.0

@@ -1,0 +1,133 @@
+{
+  "edge": "top",
+  "peek": 4,
+  "icon_size": 40,
+  "padding": 13,
+  "gap": 4,
+  "hover_scale": 1.16,
+  "theme": "dark",
+  "panel_opacity": 100,
+  "hide_delay": 700,
+  "dwell": 110,
+  "trigger_px": 2,
+  "keep_open_px": 26,
+  "slot": "center",
+  "offset": 0,
+  "pin": false,
+  "hide_after_launch": true,
+  "hotkey": "Ctrl+Alt+D",
+  "autostart": true,
+  "show_labels": true,
+  "items": [
+    {
+      "path": "D:\\Program Files\\JetBrains\\IntelliJ IDEA 2026.2.1\\bin\\idea64.exe",
+      "appid": "",
+      "name": "IntelliJ IDEA 2026.2.1",
+      "args": "",
+      "target": "",
+      "workdir": "",
+      "runas": false
+    },
+    {
+      "path": "D:\\Program Files\\JetBrains\\PyCharm 2026.2.3\\bin\\pycharm64.exe",
+      "appid": "",
+      "name": "PyCharm 2026.2.3",
+      "args": "",
+      "target": "",
+      "workdir": "",
+      "runas": false
+    },
+    {
+      "path": "D:\\Program Files\\JetBrains\\DataGrip 2026.2.3\\bin\\datagrip64.exe",
+      "appid": "",
+      "name": "DataGrip 2026.2.3",
+      "args": "",
+      "target": "",
+      "workdir": "",
+      "runas": false
+    },
+    {
+      "path": "",
+      "appid": "Microsoft.VisualStudioCode",
+      "name": "Visual Studio Code",
+      "args": "",
+      "target": "",
+      "workdir": "",
+      "runas": false
+    },
+    {
+      "path": "",
+      "appid": "VMware.Workstation.vmui",
+      "name": "VMware Workstation Pro",
+      "args": "",
+      "target": "",
+      "workdir": "",
+      "runas": false
+    },
+    {
+      "path": "",
+      "appid": "CanonicalGroupLimited.Ubuntu_79rhkp1fndgsc!ubuntu",
+      "name": "Ubuntu",
+      "args": "",
+      "target": "",
+      "workdir": "",
+      "runas": false
+    },
+    {
+      "path": "D:\\Program Files\\Huawei\\DevEco Studio\\bin\\devecostudio64.exe",
+      "appid": "",
+      "name": "DevEco Studio",
+      "args": "",
+      "target": "",
+      "workdir": "",
+      "runas": false
+    },
+    {
+      "path": "D:\\Program Files (x86)\\Adobe\\Adobe Photoshop 2023\\Photoshop.exe",
+      "appid": "",
+      "name": "Adobe Photoshop 2023",
+      "args": "",
+      "target": "",
+      "workdir": "",
+      "runas": false
+    },
+    {
+      "path": "",
+      "appid": "Anysphere.Cursor",
+      "name": "Cursor",
+      "args": "",
+      "target": "",
+      "workdir": "",
+      "runas": false
+    },
+    {
+      "path": "D:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe",
+      "appid": "",
+      "name": "OBS Studio",
+      "args": "",
+      "target": "",
+      "workdir": "",
+      "runas": false
+    },
+    {
+      "path": "",
+      "appid": "com.squirrel.GitHubDesktop.GitHubDesktop",
+      "name": "GitHub Desktop",
+      "args": "",
+      "target": "",
+      "workdir": "",
+      "runas": false
+    },
+    {
+      "path": "D:\\Program Files\\HBuilderX\\update\\backup\\root\\hbuilder.root\\HBuilderX.exe",
+      "appid": "",
+      "name": "HBuilder X",
+      "args": "",
+      "target": "",
+      "workdir": "",
+      "runas": false
+    }
+  ],
+  "hide_sys": true,
+  "seeded": true
+}
