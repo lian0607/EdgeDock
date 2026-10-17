@@ -295,12 +295,19 @@ D:\Program Files (x86)\EdgeDrawer\
 `spec_of` 能拼出 `shell:AppsFolder\...`、重复添加被拒、`repair()` / `relocate()` 对它不起作用。
 
 ```bat
-.venv\Scripts\python.exe tools\check_picker.py     :: 选择器（14 项断言，离屏）
+.venv\Scripts\python.exe tools\check_picker.py          :: 选择器（16 项断言，离屏）
+.venv\Scripts\python.exe tools\check_picker_visual.py   :: 勾选状态看得见（6 项，真实渲染）
 ```
 
 核对应用选择器：初始勾选状态（键匹配 + 名字兜底）、「全不选 + 确定」会被拦截确认、
 **池外条目不被误删**（应用标识随进程注册的应用、手动加的绿色软件）、
-「隐藏系统工具」开关的过滤与落盘。离屏模式跑，不弹窗口。
+「隐藏系统工具」开关的过滤与落盘，以及**整行点击**一脚就能翻勾选。离屏模式跑，不弹窗口。
+
+`check_picker_visual.py` 专门盯一件容易被忽略的事：勾没勾上**得看得出来**。
+它不设离屏平台，直接开真窗口抓像素 —— 离屏渲染走另一套 style，会画出对勾，
+反而漏掉「两种状态长得一模一样」这种问题（这坑真踩过：点一下状态翻了，屏幕上毫无变化，
+用户看到的就是「点了没反应」）。断言：勾选前后差异像素 > 150、勾上后出现主题色块、
+未勾选时没有主题色块；浅色 / 深色各测一遍。
 
 ```bat
 .venv\Scripts\python.exe tools\verify_real_launch.py Cursor Cursor   :: 真启动一次

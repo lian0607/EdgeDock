@@ -65,7 +65,7 @@ def find_picker() -> AppPicker:
 
 
 def drive() -> None:
-    """模态循环里跑：物理点击复选框，然后关掉选择器。"""
+    """模态循环里跑：在多个 x 位置物理点击，看勾选到底翻不翻。"""
     dlg = find_picker()
     if dlg is None:
         REC["error"] = "找不到可见的 AppPicker"
@@ -83,16 +83,19 @@ def drive() -> None:
             break
     vr = lst.visualItemRect(row)
     tl = lst.mapToGlobal(vr.topLeft())
-    name = dlg.pool[row.data(Qt.UserRole)]["name"]
-    REC["row"] = name
-    REC["before"] = row.checkState() == Qt.Checked
-    # 点复选框（探针 1 实测命中区在 x≈12~20）
-    physical_click(tl.x() + 14, tl.y() + vr.height() // 2)
-    REC["after"] = row.checkState() == Qt.Checked
-    REC["current_row"] = lst.currentRow()
-    # 再点一次点回去
-    physical_click(tl.x() + 14, tl.y() + vr.height() // 2)
-    REC["after2"] = row.checkState() == Qt.Checked
+    mid_y = tl.y() + vr.height() // 2
+    REC["row"] = dlg.pool[row.data(Qt.UserRole)]["name"]
+    REC["rect_w"] = vr.width()
+    before = row.checkState() == Qt.Checked
+    REC["before"] = before
+    # 逐个偏移量点：14=行首空隙、35=复选框实际画的位置（用户截图实测）、
+    # 行宽/2=图标名字区。每个都点两脚，回原位后再试下一个。
+    for dx_name, dx in (("x14", 14), ("x35", 35), ("x_mid", vr.width() // 2)):
+        physical_click(tl.x() + dx, mid_y)
+        first = row.checkState() == Qt.Checked
+        REC[dx_name] = "翻" if first != before else "没反应"
+        physical_click(tl.x() + dx, mid_y)          # 点回去，恢复原状态
+        REC[dx_name + "_back"] = "回" if (row.checkState() == Qt.Checked) == before else "没回"
     dlg.close()
 
 
@@ -110,10 +113,12 @@ pump(0.3)
 print("\n== 结果 ==")
 for k, v in REC.items():
     print("  %-12s %s" % (k, v))
-ok = (REC.get("active") is True and REC.get("before") is not None
-      and REC.get("after") != REC.get("before")
-      and REC.get("after2") == REC.get("before"))
-print("\n结论: %s" % ("复选框点击正常 ✅" if ok else "复选框点击有问题 ❌"))
+ok = (REC.get("active") is True
+      and REC.get("x14") == "翻" and REC.get("x35") == "翻"
+      and REC.get("x_mid") == "翻"
+      and REC.get("x14_back") == "回" and REC.get("x35_back") == "回"
+      and REC.get("x_mid_back") == "回")
+print("\n结论: %s" % ("整行点击都能翻勾选 ✅" if ok else "还有位置点不动 ❌"))
 
 dock.settings_dlg and dock.settings_dlg.close()
 getattr(dock, "cleanup", lambda: None)()

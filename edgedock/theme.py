@@ -185,6 +185,15 @@ def settings_qss(t: dict) -> str:
     QListWidget::item { padding: 6px; border-radius: 8px; }
     QListWidget::item:selected { background: %(list_sel)s; }
     QListWidget::item:hover { background: %(list_hover)s; }
+    /* 列表里的复选框必须自己画：一旦有 ::item 规则，Qt 就不再拿原生样式
+       画指示器，勾没勾上都画成同一个空方框 —— 用户看见的就是「点了没反应」。
+       跟上面的 QCheckBox 用同一套配色，勾上就是实心主题色块。 */
+    QListWidget::indicator { width: 16px; height: 16px; border-radius: 5px;
+                             border: 1px solid %(ind_border)s;
+                             background: %(ind_bg)s; }
+    QListWidget::indicator:hover { border: 1px solid %(accent)s; }
+    QListWidget::indicator:checked { background: %(accent)s;
+                                     border: 1px solid %(accent)s; }
     QSlider::groove:horizontal { height: 4px; border-radius: 2px;
                                  background: %(track)s; }
     QSlider::sub-page:horizontal { background: %(accent)s; border-radius: 2px; }
