@@ -142,6 +142,27 @@ check("开关状态写进配置", cfg_mod.Config()["hide_sys"] is False)
 dlg3.chk_sys.setChecked(True)
 check("再开回去也落盘", cfg_mod.Config()["hide_sys"] is True)
 
+print("== 7. 整行点击切换勾选（模拟真实鼠标） ==")
+# 复选框原生命中判定在 QSS 列表里会失灵，CheckList 改成整行接管：
+# 点行中间（图标/名字区）也必须一脚翻状态 —— 用户不会只点那个小格子
+from PySide6.QtTest import QTest                  # noqa: E402
+
+dlg4 = picker(cfg5)
+dlg4.show()
+row = next(i for i in range(dlg4.list.count())
+           if not dlg4.list.item(i).isHidden())
+item = dlg4.list.item(row)
+before = item.checkState()
+rect = dlg4.list.visualItemRect(item)
+QTest.mouseClick(dlg4.list.viewport(), Qt.LeftButton, Qt.NoModifier,
+                 rect.center())                    # 点行的正中间
+check("点行中间一脚切换", item.checkState() != before,
+      "before=%s after=%s" % (before, item.checkState()))
+QTest.mouseClick(dlg4.list.viewport(), Qt.LeftButton, Qt.NoModifier,
+                 rect.center())
+check("再点一脚切回来", item.checkState() == before)
+dlg4.close()
+
 print("\n%s：共 %d 项，失败 %d 项" % (
     "全部通过 ✅" if FAIL == 0 else "有失败 ❌", PASS + FAIL, FAIL))
 sys.exit(1 if FAIL else 0)
