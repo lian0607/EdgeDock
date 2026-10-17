@@ -1,0 +1,18 @@
+# 运行环境（几百 MB，用「安装运行环境.bat」重建即可）
+.venv/
+
+# 运行时缓存与自检截图
+cache/
+_shots/
+
+# Python 杂项
+__pycache__/
+*.py[cod]
+
+# 本机个人配置：桌面路径、图标布局、吸附位置都记在这里，不该进仓库
+config.json
+
+# 系统杂项
+Thumbs.db
+desktop.ini
+.DS_Store
