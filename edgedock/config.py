@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 
+from . import apps
 from . import winapi
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -41,9 +42,9 @@ DEFAULTS = {
     "hotkey": "Ctrl+Alt+D",
     "autostart": False,
     "show_labels": True,       # 悬停时浮出名称
-    "items": [],               # [{"path","name","args","target","workdir","runas"}]
-                               # target/args/workdir 由 .lnk 解析而来，
-                               # 快捷方式丢了之后靠它直接启动程序
+    "items": [],               # [{"name","path","appid","args","target","workdir","runas"}]
+                               # appid = 「所有应用」里的标识，path = 文件（.lnk/.exe/.url）
+                               # 两者至少有一个，appid 优先
     "seeded": False,
 }
 
@@ -54,10 +55,14 @@ def _norm_item(raw) -> dict | None:
     if not isinstance(raw, dict):
         return None
     path = (raw.get("path") or "").strip()
-    if not path:
+    appid = (raw.get("appid") or "").strip()
+    # 一个条目要么指向文件，要么指向「所有应用」里的某项 —— 总得有一个
+    if not path and not appid:
         return None
     return {
         "path": path,
+        # 「所有应用」里的标识（UWP 是包标识，传统程序可能是 exe 路径）
+        "appid": appid,
         "name": (raw.get("name") or "").strip(),
         "args": (raw.get("args") or "").strip(),
         # 快捷方式只是个指针。把它的真实目标一并记下来，桌面上那个 .lnk
@@ -119,16 +124,27 @@ class Config:
         self.data["items"] = out
 
     # ---- 单个条目 ----
-    def _find(self, path: str) -> int:
-        """按路径找下标，找不到返回 -1（路径比较不区分大小写）。"""
-        key = os.path.normcase(path)
-        return next((i for i, it in enumerate(self.items)
-                     if os.path.normcase(it["path"]) == key), -1)
+    @staticmethod
+    def key(it: dict) -> str:
+        """条目的稳定标识：应用标识优先，其次路径。
 
-    def _reorder(self, path: str, index: int) -> bool:
+        抽屉、右键菜单、设置界面之间只传这一个字符串 —— 上层不用关心
+        这一项底下到底是「所有应用」的标识还是磁盘上的文件。
+        """
+        return (it.get("appid") or it.get("path") or "").strip()
+
+    def _find(self, key: str) -> int:
+        """按标识找下标，找不到返回 -1（比较不区分大小写）。"""
+        k = os.path.normcase(key or "")
+        if not k:
+            return -1
+        return next((i for i, it in enumerate(self.items)
+                     if os.path.normcase(self.key(it)) == k), -1)
+
+    def _reorder(self, key: str, index: int) -> bool:
         """把某一项搬到第 index 位；真的挪动了才返回 True。"""
         items = self.items
-        idx = self._find(path)
+        idx = self._find(key)
         if idx < 0:
             return False
         new = max(0, min(len(items) - 1, index))
@@ -138,52 +154,78 @@ class Config:
         return True
 
     def add_item(self, path: str, name: str = "") -> bool:
+        """把一个磁盘上的文件（.lnk / .exe / .url）加进抽屉。"""
         path = os.path.abspath(path)
         if self._find(path) >= 0:
             return False
         # 拖进来的快捷方式/程序用文件名（去扩展名）当显示名，
         # 否则设置界面里这一行会是空白的。
         stem = os.path.splitext(os.path.basename(path))[0]
-        it = {"path": path, "name": name or stem, "args": "", "target": "",
-              "workdir": "", "runas": False}
+        it = {"path": path, "appid": "", "name": name or stem, "args": "",
+              "target": "", "workdir": "", "runas": False}
         self._remember_link(it)
         self.items.append(it)
         return True
 
-    def remove_item(self, path: str) -> None:
-        idx = self._find(path)
+    def add_app(self, app: dict) -> bool:
+        """把「所有应用」里的一个应用加进抽屉。
+
+        app 来自 ``apps.scan_apps()``，形如
+        ``{"name","path","appid","source"}``；path / appid 有一个就行。
+        """
+        name = (app.get("name") or "").strip()
+        path = (app.get("path") or "").strip()
+        appid = (app.get("appid") or "").strip()
+        if not name or not (path or appid):
+            return False
+        if self._find(appid or path) >= 0:
+            return False
+        it = {"path": path, "appid": appid, "name": name, "args": "",
+              "target": "", "workdir": "", "runas": False}
+        self._remember_link(it)
+        self.items.append(it)
+        return True
+
+    def remove_item(self, key: str) -> None:
+        idx = self._find(key)
         if idx >= 0:
             del self.items[idx]
 
-    def move_item(self, path: str, delta: int) -> None:
-        idx = self._find(path)
+    def move_item(self, key: str, delta: int) -> None:
+        idx = self._find(key)
         if idx >= 0:
-            self._reorder(path, idx + delta)
+            self._reorder(key, idx + delta)
 
-    def move_item_to(self, path: str, index: int) -> bool:
+    def move_item_to(self, key: str, index: int) -> bool:
         """把某一项直接搬到第 index 位（抽屉内拖动排序用）。"""
-        return self._reorder(path, int(index))
+        return self._reorder(key, int(index))
 
-    def find(self, path: str) -> dict | None:
-        idx = self._find(path)
+    def find(self, key: str) -> dict | None:
+        idx = self._find(key)
         return self.items[idx] if idx >= 0 else None
 
     # ---- 能不能打开 / 打不开就修 ----
     @staticmethod
     def launchable(it: dict) -> bool:
-        """能不能把这一项拉起来：快捷方式还在，或者记下的目标还在。
+        """能不能把这一项拉起来。
 
-        这是给界面用的「宽松」判断 —— 只要路径在，就认为点得开。
+        「所有应用」里的条目（有 appid）由系统注册，随手就能启动；
+        文件条目则看路径还在不在。
         """
+        if (it.get("appid") or "").strip():
+            return True
         return any(it.get(k) and os.path.exists(it[k]) for k in ("path", "target"))
 
     @staticmethod
     def durable(it: dict) -> bool:
         """这一项是不是「靠得住」的入口 —— 启动目标确定，不依赖资源管理器。
 
-        .lnk 解析不出目标就不算靠得住：能不能开全看资源管理器，
-        而且快捷方式一被删就彻底抓瞎。裸 exe / 文件夹 / 文档的路径本身就是入口。
+        有 appid 的最靠得住：由系统注册，跟桌面、快捷方式都没关系，
+        重装系统之前它一直有效。.lnk 解析不出目标就不算靠得住 ——
+        能不能开全看资源管理器，而且快捷方式一被删就彻底抓瞎。
         """
+        if (it.get("appid") or "").strip():
+            return True
         path = it.get("path") or ""
         target = it.get("target") or ""
         if target and os.path.exists(target):
@@ -194,7 +236,9 @@ class Config:
 
     def _remember_link(self, it: dict) -> bool:
         """解析 .lnk，把真实目标、启动参数、工作目录记进条目。返回是否有改动。"""
-        path = it["path"]
+        if it.get("appid"):
+            return False        # 「所有应用」的条目没有 .lnk 可解析
+        path = it.get("path") or ""
         if not path.lower().endswith(".lnk") or not os.path.exists(path):
             return False
         changed = False
@@ -225,16 +269,21 @@ class Config:
         原路径还能用的话**留着不动**（图标、右键「打开文件所在位置」都还对），
         只把找回来的真实目标补进 target 当兜底；原路径没了才改 path。
         """
-        if os.path.exists(it["path"]):
+        if it.get("appid"):
+            return False        # 系统注册的应用，不存在「找不到入口」这回事
+        path = it.get("path") or ""
+        if not path:
+            return False
+        if os.path.exists(path):
             self._remember_link(it)
             if self.durable(it):
                 return False                    # 本来就靠得住，不必动
-        for name in (os.path.splitext(os.path.basename(it["path"]))[0],
+        for name in (os.path.splitext(os.path.basename(path))[0],
                      it.get("name", "")):
             hit = find_shortcut(name)
             if not hit:
                 continue
-            if os.path.exists(it["path"]):
+            if os.path.exists(path):
                 # 借替身把真实目标挖出来，但不动原路径
                 sub = {"path": hit["path"], "name": hit["name"], "args": "",
                        "target": "", "workdir": "", "runas": False}
@@ -259,12 +308,14 @@ class Config:
         启动时跑一次：快捷方式被删、被改名、被挪走都是常事，
         没必要等到点不开才发现 —— 那时候用户只会觉得「点了没反应」。
         """
-        keys = ("path", "name", "args", "target", "workdir", "runas")
+        keys = ("path", "appid", "name", "args", "target", "workdir", "runas")
         changed = 0
         for it in self.items:
+            if it.get("appid"):
+                continue        # 系统注册的条目没什么可修
             before = tuple(it.get(k) for k in keys)
             # 快捷方式还在就顺手刷新一遍目标：程序升级换了安装目录也能跟上
-            if os.path.exists(it["path"]):
+            if it.get("path") and os.path.exists(it["path"]):
                 self._remember_link(it)
             if not self.durable(it):
                 self.relocate(it)
@@ -274,38 +325,8 @@ class Config:
 
 
 # ----------------------------------------------------------------------
-# 首次运行：从桌面挑一批常用开发工具
+# 首次运行：从系统应用目录挑一批常用开发工具
 # ----------------------------------------------------------------------
-def _walk_files(root: str, exts: tuple) -> list[str]:
-    """递归列出目录下指定后缀的文件（桌面和「开始」菜单都很小，随便走）。"""
-    out = []
-    for base, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
-        for f in files:
-            if f.lower().endswith(exts):
-                out.append(os.path.join(base, f))
-    return out
-
-
-def scan_shortcuts() -> list[dict]:
-    """扫描「用户桌面 + 公共桌面」里的快捷方式（同名只算一个）。"""
-    found, seen = [], set()
-    for d in winapi.desktop_dirs():
-        try:
-            entries = sorted(os.listdir(d))
-        except Exception:
-            continue
-        for entry in entries:
-            key = os.path.normcase(entry)
-            if key in seen or not entry.lower().endswith((".lnk", ".url")):
-                continue
-            seen.add(key)
-            found.append({"path": os.path.join(d, entry),
-                          "name": os.path.splitext(entry)[0],
-                          "args": ""})
-    return found
-
-
 def find_shortcut(name: str) -> dict | None:
     """按名字找一个能启动这个应用的快捷方式或可执行文件。
 
@@ -317,7 +338,7 @@ def find_shortcut(name: str) -> dict | None:
         return None
     exact, loose = [], []
     for d in winapi.desktop_dirs() + winapi.start_menu_dirs():
-        for path in _walk_files(d, (".lnk", ".url", ".exe")):
+        for path in apps.walk(d, (".lnk", ".url", ".exe")):
             stem = os.path.splitext(os.path.basename(path))[0]
             k = os.path.normcase(stem)
             if k == key:
@@ -326,7 +347,7 @@ def find_shortcut(name: str) -> dict | None:
                 loose.append(path)
     # 有些程序不往「开始」菜单里放快捷方式，到用户级安装目录碰碰运气
     for d in winapi.user_program_dirs():
-        for path in _walk_files(d, (".exe",)):
+        for path in apps.walk(d, (".exe",)):
             stem = os.path.splitext(os.path.basename(path))[0]
             if os.path.normcase(stem) == key:
                 exact.append(path)
@@ -342,13 +363,17 @@ def find_shortcut(name: str) -> dict | None:
 
 
 def seed_items() -> list[dict]:
-    """按 SEED_ORDER 顺序挑出桌面上的常用工具，最多 12 个。"""
-    pool = scan_shortcuts()
-    picked = []
+    """按 SEED_ORDER 顺序挑出常用应用，最多 12 个。
+
+    扫的是**系统应用目录**而不是桌面 —— 桌面上有没有快捷方式都不影响。
+    这正是「应用启动器」和「桌面图标抽屉」的分水岭。
+    """
+    pool = apps.scan_apps()
+    picked: list[dict] = []
     for key in SEED_ORDER:
-        hit = next((it for it in pool if it not in picked and key.lower()
-                    in os.path.splitext(os.path.basename(it["path"]))[0].lower()),
-                   None)
-        if hit:
-            picked.append(hit)
+        low = key.lower()
+        for a in pool:
+            if a not in picked and a["name"].lower().startswith(low):
+                picked.append(a)
+                break
     return (picked or pool[:10])[:12]

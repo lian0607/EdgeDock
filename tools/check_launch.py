@@ -33,6 +33,7 @@ os.environ["EDGEDOCK_CONFIG"] = os.path.join(TMP, "config.json")
 from PySide6.QtWidgets import QApplication                      # noqa: E402
 
 from edgedock import app as app_mod                          # noqa: E402
+from edgedock import apps as apps_mod                        # noqa: E402
 from edgedock import config as cfg_mod                       # noqa: E402
 from edgedock import winapi                                  # noqa: E402
 
@@ -448,6 +449,50 @@ def main() -> int:
               rec.only("explorer") and
               os.path.normcase(rec.last[1]) == os.path.normcase(it4["target"]),
               repr(rec.calls))
+
+    # ---- 12. 应用目录：不依赖桌面的那种条目 ----
+    print("\n[12] 系统应用目录（appid 条目 —— 桌面上根本没有它）")
+    pool = apps_mod.scan_apps()
+    check("扫得到应用", len(pool) > 0, "%d 个" % len(pool))
+    check("每一项都有名字", all(a["name"] for a in pool))
+    check("每一项都能寻址（有 path 或 appid）",
+          all(a.get("path") or a.get("appid") for a in pool))
+    check("卸载程序被过滤掉了",
+          not [a for a in pool if "卸载" in a["name"]
+               or a["name"].lower().startswith("uninstall")])
+    names = [a["name"].lower() for a in pool]
+    check("同名只留一个", len(names) == len(set(names)))
+    check("按名字排好序", names == sorted(names))
+
+    store_app = next((a for a in pool if a.get("appid")), None)
+    check("候选里有只有 appid 的应用（商店应用）", bool(store_app), str(store_app))
+    if store_app:
+        cfg5 = new_cfg([])
+        check("add_app 成功", cfg5.add_app(store_app) is True)
+        a_it = cfg5.items[0]
+        check("条目记住了 appid", a_it["appid"] == store_app["appid"], a_it["appid"])
+        check("path 是空的（不依赖任何文件）", a_it["path"] == "", repr(a_it["path"]))
+        check("key 用的是 appid", cfg5.key(a_it) == store_app["appid"])
+        check("launchable 为真", cfg5.launchable(a_it) is True)
+        check("durable 为真（系统注册，与桌面无关）", cfg5.durable(a_it) is True)
+        check("spec_of 拼得出 shell 路径",
+              apps_mod.spec_of(a_it) == winapi.app_spec(store_app["appid"]),
+              apps_mod.spec_of(a_it))
+        check("重复添加会被挡掉", cfg5.add_app(store_app) is False)
+
+        rec.clear()
+        check("launch_item 走得通", app_mod.launch_item(a_it) is True)
+        check("走 explorer 打开 shell:AppsFolder\\<标识>",
+              rec.only("explorer")
+              and rec.last[1] == winapi.app_spec(store_app["appid"]),
+              repr(rec.calls))
+
+        # appid 条目没有文件可修，体检不该去动它
+        snapshot = dict(a_it)
+        check("repair 跳过 appid 条目", cfg5.repair() == 0)
+        check("条目一个字段都没被改", snapshot == a_it, repr(a_it))
+        check("relocate 不动它", cfg5.relocate(a_it) is False)
+        check("失败提示能拿到名字", bool(a_it["name"]), a_it["name"])
 
     winapi.shell_execute = real_shell_execute
     winapi.explorer_open = real_explorer_open

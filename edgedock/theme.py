@@ -191,6 +191,11 @@ def settings_qss(t: dict) -> str:
     QSlider::handle:horizontal { width: 13px; height: 13px; margin: -6px 0;
                                  border-radius: 7px; background: #FFFFFF;
                                  border: 2px solid %(accent)s; }
+    /* 输入框跟下拉框用同一套皮肤。不写这条的话 Qt 会退回 Windows 11
+       原生样式 —— 底下拖一道蓝线，跟其余控件完全不是一家人。 */
+    QLineEdit { background: %(input_bg)s; border: 1px solid %(input_border)s;
+                border-radius: 8px; padding: 6px 10px; }
+    QLineEdit:focus { border: 1px solid %(accent)s; }
     QComboBox { background: %(input_bg)s; border: 1px solid %(input_border)s;
                 border-radius: 8px; padding: 5px 10px; }
     QComboBox::drop-down { border: none; width: 22px; }

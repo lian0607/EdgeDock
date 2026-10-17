@@ -8,13 +8,15 @@ from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup,
                                QCheckBox, QComboBox, QDialog, QFileDialog,
-                               QFrame, QHBoxLayout, QLabel, QListWidget,
-                               QListWidgetItem, QPushButton, QScrollArea,
-                               QSizePolicy, QSlider, QVBoxLayout, QWidget)
+                               QFrame, QHBoxLayout, QLabel, QLineEdit,
+                               QListWidget, QListWidgetItem, QPushButton,
+                               QScrollArea, QSizePolicy, QSlider,
+                               QVBoxLayout, QWidget)
 
+from . import apps as apps_mod
+from . import config as cfg_mod
 from . import theme as theme_mod
 from . import winapi
-from .config import scan_shortcuts
 
 EDGES = [("top", "顶部"), ("bottom", "底部"), ("left", "左侧"), ("right", "右侧")]
 SLOTS = [("center", "居中"), ("start", "起始端"), ("end", "末端")]
@@ -100,7 +102,7 @@ class SettingsDialog(QDialog):
         head = QHBoxLayout()
         title = QLabel("边缘抽屉")
         title.setObjectName("Title")
-        ver = QLabel("EdgeDock · 吸附桌面边缘的应用抽屉")
+        ver = QLabel("EdgeDock · 吸附在屏幕边缘的应用启动器")
         ver.setObjectName("Hint")
         head.addWidget(title)
         head.addSpacing(10)
@@ -178,7 +180,7 @@ class SettingsDialog(QDialog):
         # 六个按钮挤一行在这个列宽下放不下，拆成「增删 / 排序」两行
         bar1 = QHBoxLayout()
         bar1.setSpacing(8)
-        for text, fn in (("从桌面挑选…", self._pick_desktop),
+        for text, fn in (("从系统选择…", self._pick_apps),
                          ("添加文件…", self.add_files)):
             b = QPushButton(text)
             b.clicked.connect(fn)
@@ -218,6 +220,13 @@ class SettingsDialog(QDialog):
         row.addWidget(btn_cfg)
         row.addStretch(1)
         cv.addLayout(row)
+        row2 = QHBoxLayout()
+        row2.setSpacing(8)
+        self.btn_shortcut = QPushButton("添加桌面图标")
+        self.btn_shortcut.clicked.connect(self._add_desktop_icon)
+        row2.addWidget(self.btn_shortcut)
+        row2.addStretch(1)
+        cv.addLayout(row2)
         lay_r.addStretch(1)
 
         # 页脚：一条极淡的分隔线，让「完成」不至于孤零零地飘在滚动区下面
@@ -349,21 +358,38 @@ class SettingsDialog(QDialog):
         self.list.clear()
         dpr = self.devicePixelRatioF() or 1.0
         for it in self.cfg.items:
-            path = it["path"]
-            name = it.get("name") or os.path.splitext(os.path.basename(path))[0]
-            if not os.path.exists(path):
-                # 快捷方式没了不等于打不开：记住了目标就还能把程序拉起来
-                name += ("   （快捷方式已删除，按目标启动）"
-                         if self.cfg.launchable(it) else "   （找不到，请重新添加）")
-            # 图标也跟着换到还在的那个路径上，不然只剩一个字母占位
-            icon_src = path if os.path.exists(path) else (it.get("target") or path)
+            name = it.get("name") or os.path.splitext(
+                os.path.basename(it.get("path", "")))[0] or "（未命名）"
+            # 图标按「应用标识优先、其次文件路径」取，和抽屉里保持一致
+            icon_src = apps_mod.spec_of(it)
+            if not it.get("appid"):
+                path = it.get("path") or ""
+                if not os.path.exists(path):
+                    # 快捷方式没了不等于打不开：记住了目标就还能把程序拉起来
+                    name += ("   （快捷方式已删除，按目标启动）"
+                             if self.cfg.launchable(it) else "   （找不到，请重新添加）")
+                    # 图标也跟着换到还在的那个路径上，不然只剩一个字母占位
+                    icon_src = it.get("target") or icon_src
             item = QListWidgetItem(QIcon(self.store.pixmap(icon_src, 22, dpr)), name)
-            item.setData(Qt.UserRole, path)
-            item.setToolTip(path)          # 列窄，名字会被省略，用悬停补全路径
+            item.setData(Qt.UserRole, self.cfg.key(it))
+            # 列窄，名字会被省略，用悬停补全来源
+            item.setToolTip(self._describe(it))
             self.list.addItem(item)
         self.list.blockSignals(False)
         if 0 <= selected < self.list.count():
             self.list.setCurrentRow(selected)
+
+    @staticmethod
+    def _describe(it: dict) -> str:
+        """列表项的完整说明：名字 + 从哪儿来的 + 底下是什么。"""
+        where = apps_mod.SOURCE_LABEL.get(it.get("source", ""), "")
+        if it.get("appid"):
+            detail = winapi.app_spec(it["appid"])
+        elif it.get("target"):
+            detail = it["target"]
+        else:
+            detail = it.get("path", "")
+        return "\n".join(x for x in (it.get("name"), where, detail) if x)
 
     def _current_path(self):
         it = self.list.currentItem()
@@ -392,8 +418,8 @@ class SettingsDialog(QDialog):
     def _on_rows_moved(self, *_args) -> None:
         # 这里故意不刷新列表 —— 排序刚落地，重画会把拖好的视觉状态打乱
         order = [self.list.item(i).data(Qt.UserRole) for i in range(self.list.count())]
-        by_path = {i["path"]: i for i in self.cfg.items}
-        self.cfg.set_items([by_path[p] for p in order if p in by_path])
+        by_key = {self.cfg.key(i): i for i in self.cfg.items}
+        self.cfg.set_items([by_key[k] for k in order if k in by_key])
         self.cfg.save()
         self._notify()
 
@@ -407,9 +433,9 @@ class SettingsDialog(QDialog):
             self.cfg.add_item(f)
         self._after_list_change()
 
-    def _pick_desktop(self) -> None:
+    def _pick_apps(self) -> None:
         # 勾选窗口自己会把配置存好，这里只需要刷新显示
-        if ShortcutPicker(self.cfg, self).exec() == QDialog.Accepted:
+        if AppPicker(self.cfg, self.store, self).exec() == QDialog.Accepted:
             self._refresh_list()
             self._notify()
 
@@ -441,36 +467,78 @@ class SettingsDialog(QDialog):
         except Exception:
             pass
 
+    # ------------------------------------------------------------------
+    LNK_NAME = "EdgeDock 边缘抽屉.lnk"
+
+    def _add_desktop_icon(self) -> None:
+        """在桌面放一个 EdgeDock 的快捷方式，丢了 / 挪走了就一键找回。
+
+        已存在的话直接覆盖 —— create_lnk 每次都重写，顺带把图标和描述刷新。
+        成功与否都把按钮文字临时换掉，比弹个对话框轻。
+        """
+        btn = self.btn_shortcut
+        lnk = os.path.join(winapi.desktop_dirs()[0], self.LNK_NAME)
+        ok = winapi.create_lnk(
+            lnk,
+            os.path.join(cfg_mod.ROOT, "启动 EdgeDock.vbs"),
+            workdir=cfg_mod.ROOT,
+            icon=os.path.join(cfg_mod.ROOT, "assets", "edgedock.ico"),
+            desc="EdgeDock · 吸附在屏幕边缘的应用启动器")
+        btn.setText("已放到桌面 ✓" if ok else "创建失败 ✗")
+        QTimer.singleShot(2200, lambda: btn.setText("添加桌面图标"))
+
 
 # ==========================================================================
-class ShortcutPicker(QDialog):
-    """从桌面快捷方式里勾选。"""
+class AppPicker(QDialog):
+    """从系统里挑应用：搜名字、勾选、确定。
 
-    def __init__(self, cfg, parent=None):
+    候选来自 ``apps.scan_apps()`` —— 「所有应用」+ 开始菜单 + 桌面，同名的只留
+    优先级最高的那个。所以桌面干不干净、快捷方式有没有被挪走，都不影响这里；
+    商店应用也一并列出来。
+    """
+
+    def __init__(self, cfg, store, parent=None):
         super().__init__(parent)
         self.cfg = cfg
+        self.store = store
         self.t = theme_mod.get(cfg["theme"])
-        self.setWindowTitle("从桌面挑选应用")
-        self.setFixedSize(520, 620)
+        self.setWindowTitle("选择应用")
+        self.setFixedSize(560, 660)
         self.setStyleSheet(theme_mod.settings_qss(self.t))
-        self.pool = scan_shortcuts()
-        existing = {os.path.normcase(i["path"]) for i in cfg.items}
+        self.pool = apps_mod.scan_apps()
+        self._chosen = {os.path.normcase(cfg.key(i)) for i in cfg.items}
 
         v = QVBoxLayout(self)
         v.setContentsMargins(18, 16, 18, 16)
         v.setSpacing(10)
-        lab = QLabel("勾选要放进抽屉的应用（%d 个可选）" % len(self.pool))
+
+        lab = QLabel("勾选要放进抽屉的应用（共 %d 个）" % len(self.pool))
         lab.setObjectName("Section")
         v.addWidget(lab)
 
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("搜索应用名…")
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(self._filter)
+        v.addWidget(self.search)
+
         self.list = QListWidget()
         self.list.setIconSize(QSize(22, 22))
-        for it in self.pool:
-            item = QListWidgetItem(it["name"])
-            item.setData(Qt.UserRole, it["path"])
+        self.list.setUniformItemSizes(True)
+        dpr = self.devicePixelRatioF() or 1.0
+        # 同一个图标可能被多个条目共用（比如「所有应用」和开始菜单里的同一程序），
+        # 建个索引，后台补图时不用每次把整个列表扫一遍
+        self._by_spec: dict[str, list] = {}
+        for idx, it in enumerate(self.pool):
+            item = QListWidgetItem(self._label_of(it))
+            item.setData(Qt.UserRole, idx)          # 下标指回 self.pool
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Checked if os.path.normcase(it["path"]) in existing
+            item.setCheckState(Qt.Checked if self._key_of(it) in self._chosen
                                else Qt.Unchecked)
+            item.setToolTip(it.get("appid") or it.get("path") or "")
+            spec = apps_mod.spec_of(it)
+            item.setIcon(QIcon(store.pixmap(spec, 22, dpr)))
+            self._by_spec.setdefault(spec, []).append(item)
             self.list.addItem(item)
         v.addWidget(self.list, 1)
 
@@ -482,30 +550,76 @@ class ShortcutPicker(QDialog):
         row.addWidget(b_all)
         row.addWidget(b_none)
         row.addStretch(1)
+        cancel = QPushButton("取消")
+        cancel.clicked.connect(self.reject)
+        row.addWidget(cancel)
         ok = QPushButton("确定")
         ok.setObjectName("Primary")
         ok.clicked.connect(self._accept)
         row.addWidget(ok)
         v.addLayout(row)
 
+        # 图标是后台分批提取的，好了就把对应那行刷新一下
+        store.ready.connect(self._on_icon_ready)
+        self._specs = [apps_mod.spec_of(it) for it in self.pool]
+        # 先补首屏看得见的那些，剩下的等窗口出来了再补 —— 一百多个一起提
+        # 会让第一次打开明显发木
+        store.warm(self._specs[:48])
+        later = QTimer(self)
+        later.setSingleShot(True)
+        later.timeout.connect(lambda: store.warm(self._specs))
+        later.start(900)
+
         apply_immersive(self, self.t)
 
-    def _set_all(self, state) -> None:
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _key_of(app: dict) -> str:
+        return os.path.normcase((app.get("appid") or app.get("path") or "").strip())
+
+    @staticmethod
+    def _label_of(app: dict) -> str:
+        label = app["name"]
+        src = apps_mod.SOURCE_LABEL.get(app.get("source", ""), "")
+        # 只有不是「应用列表」的才标来源，否则满屏都是同一个标签
+        if src and app.get("source") != "apps":
+            label += "    · %s" % src
+        return label
+
+    def _filter(self, text: str) -> None:
+        needle = text.strip().lower()
         for i in range(self.list.count()):
-            self.list.item(i).setCheckState(state)
+            item = self.list.item(i)
+            item.setHidden(bool(needle) and needle not in item.text().lower())
+
+    def _on_icon_ready(self, spec: str) -> None:
+        dpr = self.devicePixelRatioF() or 1.0
+        for item in self._by_spec.get(spec, ()):
+            item.setIcon(QIcon(self.store.pixmap(spec, 22, dpr)))
+
+    def _set_all(self, state) -> None:
+        # 只作用于当前可见的（搜索过滤之后「全选」按用户看到的那批算）
+        for i in range(self.list.count()):
+            item = self.list.item(i)
+            if not item.isHidden():
+                item.setCheckState(state)
 
     def _accept(self) -> None:
-        chosen = []
+        picked, keys = [], set()
         for i in range(self.list.count()):
-            it = self.list.item(i)
-            if it.checkState() == Qt.Checked:
-                chosen.append(it.data(Qt.UserRole))
-        existing = {os.path.normcase(x["path"]): x for x in self.cfg.items}
-        ordered = [existing[os.path.normcase(p)] for p in chosen
-                   if os.path.normcase(p) in existing]
-        for p in chosen:
-            if os.path.normcase(p) not in existing:
-                ordered.append({"path": p, "name": "", "args": ""})
-        self.cfg.set_items(ordered)
+            item = self.list.item(i)
+            if item.checkState() == Qt.Checked:
+                app = self.pool[item.data(Qt.UserRole)]
+                picked.append(app)
+                keys.add(self._key_of(app))
+        # 原有项保持原顺序（用户可能调过），新勾的按列表顺序往后接
+        out = [it for it in self.cfg.items
+               if os.path.normcase(self.cfg.key(it)) in keys]
+        have = {os.path.normcase(self.cfg.key(it)) for it in out}
+        for app in picked:
+            if self._key_of(app) not in have:
+                out.append(app)
+                have.add(self._key_of(app))
+        self.cfg.set_items(out)
         self.cfg.save()
         self.accept()

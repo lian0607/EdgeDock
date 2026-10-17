@@ -24,7 +24,7 @@ def main() -> None:
         os.path.join(ROOT, "启动 EdgeDock.vbs"),
         workdir=ROOT,
         icon=os.path.join(ROOT, "assets", "edgedock.ico"),
-        desc="EdgeDock · 吸附桌面边缘的应用抽屉",
+        desc="EdgeDock · 吸附在屏幕边缘的应用启动器",
     )
     print(("桌面快捷方式已更新: " if ok else "桌面快捷方式创建失败: ") + lnk)
     if ok:

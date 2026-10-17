@@ -11,8 +11,10 @@ from PySide6.QtGui import (QColor, QCursor, QFont, QFontMetrics, QLinearGradient
                            QPainter, QPainterPath, QPen)
 from PySide6.QtWidgets import QApplication, QMenu, QWidget
 
+from . import apps as apps_mod
 from . import theme as theme_mod
 from . import winapi
+from .config import Config
 
 SHADOW = 0           # 不留投影留白（窗口与面板等大，避免遮挡下层点击）
 
@@ -143,10 +145,15 @@ class IconButton(QWidget):
         self.t = t
         # 显示名提前算好：悬停浮标和右键菜单都要用，省得每处再查一遍配置
         self.name = item.get("name") or \
-            os.path.splitext(os.path.basename(item["path"]))[0]
+            os.path.splitext(os.path.basename(item.get("path", "")))[0] or "应用"
         self._hover = 0.0
         self._press = False
-        self.missing = not os.path.exists(item["path"])
+        # 对外只用这个标识（appid 优先，其次路径）
+        self.key = Config.key(item)
+        self.spec = apps_mod.spec_of(item)
+        # 「所有应用」的条目由系统注册，不存在找不到的问题
+        self.missing = (not item.get("appid")
+                        and not os.path.exists(item.get("path") or ""))
         self.setFixedSize(geo.btn, geo.btn)
         self.setMouseTracking(True)
         # 拖动排序用
@@ -236,12 +243,12 @@ class IconButton(QWidget):
             self.dragFinished.emit(self, True)       # 拖动排序收尾，不触发启动
             return
         if self.rect().contains(event.position().toPoint()):
-            self.activated.emit(self.item["path"])
+            self.activated.emit(self.key)
 
     def contextMenuEvent(self, event):
         if self.dragging:
             return
-        self.menuRequested.emit(self.item["path"], event.globalPos())
+        self.menuRequested.emit(self.key, event.globalPos())
 
     # ------------------------------------------------------------------
     def paintEvent(self, event):
@@ -278,7 +285,7 @@ class IconButton(QWidget):
             factor *= 0.92
         side = int(self.geo.icon * factor)
         dpr = self.devicePixelRatioF() or 1.0
-        pm = self.store.pixmap(self.item["path"], side, dpr)
+        pm = self.store.pixmap(self.spec, side, dpr)
         if not pm.isNull():
             w = pm.width() / (pm.devicePixelRatio() or 1.0)
             h = pm.height() / (pm.devicePixelRatio() or 1.0)
@@ -462,7 +469,7 @@ class DrawerWindow(QWidget):
             b.deleteLater()
         self.buttons = []
 
-        items = [i for i in self.cfg.items if i.get("path")]
+        items = self.cfg.items
         for it in items:
             btn = IconButton(it, self.geo, self.store, self.t, self.panel)
             btn.activated.connect(self._on_activate)
@@ -477,12 +484,12 @@ class DrawerWindow(QWidget):
         self._content_len = self.geo.content_len(len(self.buttons))
         self._scroll = 0
         self._layout_panel()
-        self.store.warm([i["path"] for i in items])
+        self.store.warm([i.spec for i in self.buttons])
 
-    def _on_icon_ready(self, path: str) -> None:
+    def _on_icon_ready(self, spec: str) -> None:
         """图标后台提取完成 -> 让对应按钮重画。"""
         for b in self.buttons:
-            if b.item["path"] == path:
+            if b.spec == spec:
                 b.update()
         self.panel.update()
 
@@ -646,8 +653,8 @@ class DrawerWindow(QWidget):
     # ------------------------------------------------------------------
     #  事件
     # ------------------------------------------------------------------
-    def _on_activate(self, path: str) -> None:
-        self.launchRequested.emit(path)
+    def _on_activate(self, key: str) -> None:
+        self.launchRequested.emit(key)
         if self.cfg["hide_after_launch"] and not self.pinned:
             QTimer.singleShot(120, self.collapse)
 
@@ -724,7 +731,7 @@ class DrawerWindow(QWidget):
         if moved:
             # buttons 与 cfg.items 的顺序始终一一对应，一起搬
             self.buttons.insert(dst, self.buttons.pop(src))
-            self.cfg.move_item_to(btn.item["path"], dst)
+            self.cfg.move_item_to(btn.key, dst)
             self.cfg.save()
         self._place_buttons()
         if moved:
@@ -734,15 +741,16 @@ class DrawerWindow(QWidget):
             btn.glide_to(target)
         self.panel.update()
 
-    def _on_menu(self, path: str, global_pos: QPoint) -> None:
+    def _on_menu(self, key: str, global_pos: QPoint) -> None:
         menu = self._menu()
-        it = self.cfg.find(path) or {"path": path}
+        it = self.cfg.find(key) or {"path": key, "name": ""}
         # 判据是「能不能真拉起来」：快捷方式被删了、记下的目标还在，照样能开，
         # 这种情况下还把「打开」置灰就说不通了。
         act_open = menu.addAction("打开")
         act_open.setEnabled(self.cfg.launchable(it))
         where = _existing_path(it)
         act_loc = menu.addAction("打开文件所在位置")
+        # 商店应用（只有 appid）压根没有磁盘上的位置，这一项直接置灰
         act_loc.setEnabled(bool(where))
         menu.addSeparator()
         hint = menu.addAction("按住图标拖动即可调顺序")
@@ -755,27 +763,27 @@ class DrawerWindow(QWidget):
         act_set = menu.addAction("设置…")
         act_quit = menu.addAction("退出 EdgeDock")
 
-        act_open.triggered.connect(lambda: self.launchRequested.emit(it["path"]))
+        act_open.triggered.connect(lambda: self.launchRequested.emit(key))
         act_loc.triggered.connect(lambda: reveal_in_explorer(where))
-        act_front.triggered.connect(lambda: self._reorder(path, -999))
-        act_back.triggered.connect(lambda: self._reorder(path, 999))
-        act_kill.triggered.connect(lambda: self._remove(path))
+        act_front.triggered.connect(lambda: self._reorder(key, -999))
+        act_back.triggered.connect(lambda: self._reorder(key, 999))
+        act_kill.triggered.connect(lambda: self._remove(key))
         act_set.triggered.connect(self.settingsRequested.emit)
         act_quit.triggered.connect(self.quitRequested.emit)
         menu.exec(global_pos)
 
-    def _reorder(self, path: str, delta: int) -> None:
+    def _reorder(self, key: str, delta: int) -> None:
         items = self.cfg.items
         for idx, it in enumerate(items):
-            if it["path"] == path:
+            if self.cfg.key(it) == key:
                 new = 0 if delta < 0 else len(items) - 1
                 items.insert(new, items.pop(idx))
                 break
         self.cfg.save()
         self.rebuild()
 
-    def _remove(self, path: str) -> None:
-        self.cfg.remove_item(path)
+    def _remove(self, key: str) -> None:
+        self.cfg.remove_item(key)
         self.cfg.save()
         self.rebuild()
 

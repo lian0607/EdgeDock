@@ -15,7 +15,8 @@ import os
 import subprocess
 import threading
 import winreg
-from ctypes import POINTER, byref, c_int, c_long, c_ssize_t, c_ubyte, c_uint, c_void_p
+from ctypes import (POINTER, byref, c_int, c_long, c_ssize_t, c_ubyte, c_uint,
+                    c_ulong, c_void_p)
 from ctypes import wintypes
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -532,11 +533,16 @@ def shell_execute(path: str, args: str = "", workdir: str = "") -> bool:
 #   * 起来的进程挂在 explorer 名下，不受调用方的作业对象/沙箱牵连；
 #   * .lnk 自己的启动参数、工作目录、提权标记、应用标识全都照旧生效。
 def explorer_open(path: str) -> bool:
-    """交给资源管理器打开路径（.lnk / .exe / 文件夹都行）。"""
-    if not path or not os.path.exists(path):
+    """交给资源管理器打开（.lnk / .exe / 文件夹 / shell: 命名空间路径都行）。"""
+    if not path:
+        return False
+    is_shell = path.lower().startswith("shell:")
+    # shell:AppsFolder\<应用标识> 压根不是文件系统路径，exists 永远为假，
+    # 这里不能拿它当判断依据
+    if not is_shell and not os.path.exists(path):
         return False
     try:
-        subprocess.Popen(["explorer", os.path.normpath(path)],
+        subprocess.Popen(["explorer", path if is_shell else os.path.normpath(path)],
                          close_fds=True)
         return True
     except Exception:
@@ -597,6 +603,236 @@ def user_program_dirs() -> list[str]:
                 if os.path.isdir(os.path.join(root, d))]
     except Exception:
         return []
+
+
+# --------------------------------------------------------------------------
+# 系统应用目录（shell:AppsFolder）
+# --------------------------------------------------------------------------
+# 「应用启动器」的地基。Windows 的「所有应用」本身就是一个 shell 命名空间目录，
+# UWP / 商店应用和绝大多数传统程序都挂在里头。每一项都有一个「相对标识」，
+# 拼成 shell:AppsFolder\<标识> 之后，既能取图标，也能让资源管理器把它启动起来。
+IID_IShellFolder = GUID(0x000214E6, 0x0000, 0x0000,
+                        (0xC0, 0, 0, 0, 0, 0, 0, 0x46))
+IID_IShellItem = GUID(0x43826D1E, 0xE718, 0x42EE,
+                      (0xBC, 0x55, 0xA1, 0xE2, 0x61, 0xC3, 0x7B, 0xFE))
+IID_IShellItemImageFactory = GUID(0xBCC18B79, 0xBA16, 0x442F,
+                                  (0x80, 0xC4, 0x8A, 0x59, 0xC3, 0x0C, 0x46, 0x3B))
+
+SHCONTF_FOLDERS = 0x0020
+SHCONTF_NONFOLDERS = 0x0040
+SIGDN_NORMALDISPLAY = 0x00000000
+SIGDN_PARENTRELATIVEPARSING = 0x80018001
+SIIGBF_BIGGERSIZEOK = 0x00000001
+SIIGBF_ICONONLY = 0x00000004
+
+APPS_FOLDER = "shell:AppsFolder"
+
+# 不设 argtypes 的话，64 位下 c_void_p 会被当成 32 位整数传进去，指针被截断
+# —— 调用直接抛异常。之前那些「包在 try 里悄悄失败」的内存释放就栽在这儿。
+ole32.CoTaskMemFree.argtypes = [c_void_p]
+ole32.CoTaskMemFree.restype = None
+
+shell32.SHParseDisplayName.argtypes = [wintypes.LPCWSTR, c_void_p,
+                                       POINTER(c_void_p), wintypes.DWORD,
+                                       POINTER(wintypes.DWORD)]
+shell32.SHParseDisplayName.restype = c_long
+shell32.SHBindToObject.argtypes = [c_void_p, c_void_p, c_void_p,
+                                   POINTER(GUID), POINTER(c_void_p)]
+shell32.SHBindToObject.restype = c_long
+shell32.SHCreateItemWithParent.argtypes = [c_void_p, c_void_p, c_void_p,
+                                           POINTER(GUID), POINTER(c_void_p)]
+shell32.SHCreateItemWithParent.restype = c_long
+shell32.SHCreateItemFromParsingName.argtypes = [wintypes.LPCWSTR, c_void_p,
+                                                POINTER(GUID), POINTER(c_void_p)]
+shell32.SHCreateItemFromParsingName.restype = c_long
+
+
+def app_spec(appid: str) -> str:
+    """把应用标识拼成 shell 路径（shell:AppsFolder\\<标识>）。"""
+    return (APPS_FOLDER + "\\" + appid) if appid else ""
+
+
+def resolve_app(spec: str) -> str:
+    """确认一个 shell 项还在不在，返回它的显示名（不存在则空串）。
+
+    主要用来验 ``shell:AppsFolder\\<标识>`` 这种虚拟路径 —— 它不对应磁盘上的
+    任何文件，``os.path.exists`` 永远是假，唯一可靠的判断是拿去问 shell 一次。
+    """
+    if not spec:
+        return ""
+    psi = c_void_p()
+    try:
+        ensure_com()
+        if (shell32.SHCreateItemFromParsingName(spec, None, byref(IID_IShellItem),
+                                                byref(psi)) < 0 or not psi):
+            return ""
+        return _item_display_name(psi.value, SIGDN_NORMALDISPLAY)
+    except Exception:
+        return ""
+    finally:
+        if psi:
+            try:
+                _release(psi)
+            except Exception:
+                pass
+
+
+def _item_display_name(psi: int, sigdn: int) -> str:
+    """IShellItem::GetDisplayName —— IUnknown 占 0-2，所以它在第 5 位。"""
+    buf = wintypes.LPWSTR()
+    try:
+        fn = _com_call(psi, 5, c_long, c_int, POINTER(wintypes.LPWSTR))
+        if fn(psi, sigdn, byref(buf)) == 0 and buf.value:
+            name = buf.value
+            ole32.CoTaskMemFree(buf)
+            return name
+    except Exception:
+        pass
+    return ""
+
+
+def list_apps() -> list[dict]:
+    """列出「所有应用」里的应用：``[{"name": 显示名, "appid": 标识}]``。
+
+    标识有两种长相：UWP 是包标识（形如 Xxx_8wekyb3d8bbwe!App），传统程序
+    往往直接就是 exe 的完整路径。两种都能拼成 shell:AppsFolder\\<标识>。
+    """
+    out: list[dict] = []
+    ensure_com()
+    pidl = c_void_p()
+    psf = c_void_p()
+    enum = c_void_p()
+    try:
+        if (shell32.SHParseDisplayName(APPS_FOLDER, None, byref(pidl), 0, None) < 0
+                or not pidl):
+            return out
+        if (shell32.SHBindToObject(None, pidl, None, byref(IID_IShellFolder),
+                                   byref(psf)) < 0 or not psf):
+            return out
+        # IShellFolder：3 ParseDisplayName、4 EnumObjects
+        if (_com_call(psf.value, 4, c_long, c_void_p, wintypes.DWORD,
+                      POINTER(c_void_p))(psf.value, None,
+                                         SHCONTF_FOLDERS | SHCONTF_NONFOLDERS,
+                                         byref(enum)) < 0 or not enum):
+            return out
+        # IEnumIDList：3 Next、4 Skip、5 Reset、6 Clone
+        next_fn = _com_call(enum.value, 3, c_long, c_ulong,
+                            POINTER(c_void_p), POINTER(c_ulong))
+        while True:
+            child = c_void_p()
+            fetched = c_ulong(0)
+            if next_fn(enum.value, 1, byref(child), byref(fetched)) != 0 or not child:
+                break
+            try:
+                psi = c_void_p()
+                if (shell32.SHCreateItemWithParent(None, psf, child,
+                                                   byref(IID_IShellItem),
+                                                   byref(psi)) < 0 or not psi):
+                    continue
+                try:
+                    name = _item_display_name(psi.value, SIGDN_NORMALDISPLAY)
+                    ident = _item_display_name(psi.value,
+                                               SIGDN_PARENTRELATIVEPARSING)
+                    if name and ident:
+                        out.append({"name": name, "appid": ident})
+                finally:
+                    _release(psi)
+            finally:
+                ole32.CoTaskMemFree(child)
+    except Exception:
+        pass
+    finally:
+        for ptr in (enum, psf, pidl):
+            if ptr:
+                try:
+                    if ptr is pidl:
+                        ole32.CoTaskMemFree(ptr)
+                    else:
+                        _release(ptr)
+                except Exception:
+                    pass
+    return out
+
+
+class _SIZE(ctypes.Structure):
+    _fields_ = [("cx", c_long), ("cy", c_long)]
+
+
+class _BITMAP(ctypes.Structure):
+    _fields_ = [("bmType", c_long), ("bmWidth", c_long), ("bmHeight", c_long),
+                ("bmWidthBytes", c_long), ("bmPlanes", wintypes.WORD),
+                ("bmBitsPixel", wintypes.WORD), ("bmBits", c_void_p)]
+
+
+class _BITMAPINFOHEADER(ctypes.Structure):
+    _fields_ = [("biSize", wintypes.DWORD), ("biWidth", c_long),
+                ("biHeight", c_long), ("biPlanes", wintypes.WORD),
+                ("biBitCount", wintypes.WORD), ("biCompression", wintypes.DWORD),
+                ("biSizeImage", wintypes.DWORD), ("biXPelsPerMeter", c_long),
+                ("biYPelsPerMeter", c_long), ("biClrUsed", wintypes.DWORD),
+                ("biClrImportant", wintypes.DWORD)]
+
+
+gdi32.CreateCompatibleDC.argtypes = [wintypes.HDC]
+gdi32.CreateCompatibleDC.restype = wintypes.HDC
+gdi32.GetDIBits.argtypes = [wintypes.HDC, wintypes.HBITMAP, c_uint, c_uint,
+                            c_void_p, c_void_p, c_uint]
+gdi32.DeleteDC.argtypes = [wintypes.HDC]
+gdi32.DeleteObject.argtypes = [wintypes.HGDIOBJ]
+gdi32.GetObjectW.argtypes = [wintypes.HGDIOBJ, c_int, c_void_p]
+
+
+def shell_item_image(spec: str, size: int) -> bytes | None:
+    """取 shell 项的图像，返回 size×size 的 BGRA 字节（失败返回 None）。
+
+    **为什么不用 SHGetFileInfoW**：它对 ``shell:AppsFolder\\<标识>`` 这种
+    虚拟路径取不到图标（实测 161 个全是 0）。IShellItemImageFactory 才认，
+    而且 UWP 和传统程序一视同仁。
+    """
+    pif = c_void_p()
+    hbm = wintypes.HBITMAP()
+    hdc = None
+    try:
+        if not spec:
+            return None
+        ensure_com()
+        if (shell32.SHCreateItemFromParsingName(spec, None,
+                                                byref(IID_IShellItemImageFactory),
+                                                byref(pif)) < 0 or not pif):
+            return None
+        # IShellItemImageFactory::GetImage 在虚表第 3 位
+        if (_com_call(pif.value, 3, c_long, _SIZE, c_int,
+                      POINTER(wintypes.HBITMAP))(
+                pif.value, _SIZE(size, size),
+                SIIGBF_BIGGERSIZEOK | SIIGBF_ICONONLY, byref(hbm)) < 0
+                or not hbm):
+            return None
+        bm = _BITMAP()
+        gdi32.GetObjectW(hbm, ctypes.sizeof(bm), byref(bm))
+        w, h = bm.bmWidth, bm.bmHeight
+        if w <= 0 or h <= 0:
+            return None
+        hdc = gdi32.CreateCompatibleDC(None)
+        bh = _BITMAPINFOHEADER()
+        bh.biSize = ctypes.sizeof(bh)
+        bh.biWidth = w
+        bh.biHeight = -h            # 负数表示自上而下，省得再翻转一次
+        bh.biPlanes = 1
+        bh.biBitCount = 32
+        bh.biCompression = 0        # BI_RGB
+        buf = ctypes.create_string_buffer(w * h * 4)
+        if gdi32.GetDIBits(hdc, hbm, 0, h, buf, byref(bh), 0) == 0:
+            return None
+        return buf.raw
+    except Exception:
+        return None
+    finally:
+        if hdc:
+            gdi32.DeleteDC(hdc)
+        if hbm:
+            gdi32.DeleteObject(hbm)
+        if pif:
+            _release(pif)
 
 
 kernel32.CreateMutexW.argtypes = [c_void_p, wintypes.BOOL, wintypes.LPCWSTR]

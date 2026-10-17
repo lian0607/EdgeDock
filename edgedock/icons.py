@@ -20,22 +20,43 @@ from . import winapi
 MASTER = 256
 
 
-def _key(path: str) -> str:
-    try:
-        st = os.stat(path)
-        stamp = "%d|%d" % (int(st.st_mtime), st.st_size)
-    except Exception:
-        stamp = "0|0"
-    raw = "%s|%s|v2" % (os.path.normcase(os.path.abspath(path)), stamp)
+def _is_shell(spec: str) -> bool:
+    """是不是 shell 命名空间路径（shell:AppsFolder\\<应用标识>）。"""
+    return spec.lower().startswith("shell:")
+
+
+def _key(spec: str) -> str:
+    if _is_shell(spec):
+        # shell 项没有文件时间可看，标识本身就够当版本了
+        raw = "%s|v2" % os.path.normcase(spec)
+    else:
+        try:
+            st = os.stat(spec)
+            stamp = "%d|%d" % (int(st.st_mtime), st.st_size)
+        except Exception:
+            stamp = "0|0"
+        raw = "%s|%s|v2" % (os.path.normcase(os.path.abspath(spec)), stamp)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:20]
 
 
-def _extract_png(path: str, png_path: str) -> bool:
-    """把一个文件的图标写成 PNG，成功返回 True。"""
+def _extract_png(spec: str, png_path: str) -> bool:
+    """把一个项（磁盘文件或 shell 应用）的图标写成 PNG，成功返回 True。"""
     winapi.ensure_com()
+    if _is_shell(spec):
+        # shell: 这种虚拟路径 SHGetFileInfo 取不到，只能走 IShellItemImageFactory
+        try:
+            data = winapi.shell_item_image(spec, MASTER)
+            if data and len(data) == MASTER * MASTER * 4:
+                img = QImage(data, MASTER, MASTER, QImage.Format_ARGB32).copy()
+                if not img.isNull() and img.save(png_path, "PNG"):
+                    return True
+        except Exception:
+            pass
+        return False
+
     hicon = 0
     try:
-        hicon = winapi.extract_hicon(path)
+        hicon = winapi.extract_hicon(spec)
         if hicon:
             data = winapi.hicon_to_bgra(hicon, MASTER)
             if data:
@@ -52,7 +73,7 @@ def _extract_png(path: str, png_path: str) -> bool:
                 pass
     # 兜底：Qt 自带的图标提供器
     try:
-        icon = QFileIconProvider().icon(QFileInfo(path))
+        icon = QFileIconProvider().icon(QFileInfo(spec))
         pm = icon.pixmap(MASTER, MASTER)
         if not pm.isNull() and pm.width() > 1:
             if pm.save(png_path, "PNG"):
@@ -93,22 +114,22 @@ class IconStore(QObject):
         self._pending: set[str] = set()
 
     # ------------------------------------------------------------------
-    def png_of(self, path: str) -> str | None:
+    def png_of(self, spec: str) -> str | None:
         """仅查缓存，不触发生成。"""
-        hit = self._png.get(path)
+        hit = self._png.get(spec)
         if hit and os.path.exists(hit):
             return hit
-        if path and os.path.exists(path):
-            png = os.path.join(self.cache_dir, _key(path) + ".png")
+        if spec and (_is_shell(spec) or os.path.exists(spec)):
+            png = os.path.join(self.cache_dir, _key(spec) + ".png")
             if os.path.exists(png):
-                self._png[path] = png
+                self._png[spec] = png
                 return png
         return None
 
-    def warm(self, paths: list[str]) -> None:
+    def warm(self, specs: list[str]) -> None:
         """后台把还没有缓存的图标提取出来。"""
-        need = [p for p in dict.fromkeys(paths)
-                if p and os.path.exists(p) and not self.png_of(p)]
+        need = [s for s in dict.fromkeys(specs)
+                if s and (_is_shell(s) or os.path.exists(s)) and not self.png_of(s)]
         if not need:
             return
         if self._worker and self._worker.isRunning():
@@ -136,23 +157,26 @@ class IconStore(QObject):
             self._worker.wait(2500)
 
     # ------------------------------------------------------------------
-    def pixmap(self, path: str, size: int, dpr: float = 1.0) -> QPixmap:
-        """返回 size 逻辑像素、适配 DPR 的图标。"""
+    def pixmap(self, spec: str, size: int, dpr: float = 1.0) -> QPixmap:
+        """返回 size 逻辑像素、适配 DPR 的图标。
+
+        spec 可以是磁盘路径，也可以是 shell:AppsFolder\\<应用标识>。
+        """
         physical = max(8, int(round(size * dpr)))
-        ck = (path, physical)
+        ck = (spec, physical)
         cached = self._pm.get(ck)
         if cached is not None:
             return cached
 
         pm = QPixmap()
-        png = self.png_of(path)
+        png = self.png_of(spec)
         if png:
             src = QPixmap(png)
             if not src.isNull():
                 pm = src.scaled(physical, physical, Qt.KeepAspectRatio,
                                 Qt.SmoothTransformation)
         if pm.isNull():
-            pm = self._placeholder(path, physical)
+            pm = self._placeholder(spec, physical)
         if dpr != 1.0:
             pm.setDevicePixelRatio(dpr)
         self._pm[ck] = pm

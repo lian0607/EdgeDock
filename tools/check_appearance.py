@@ -42,6 +42,26 @@ print("屏幕逻辑 %dx%d  DPR=%s" % (geo.width(), geo.height(), DPR))
 subprocess.run(["taskkill", "/F", "/IM", "pythonw.exe"], capture_output=True)
 time.sleep(0.9)
 
+from edgedock import config as cfg_mod          # noqa: E402
+from edgedock.drawer import Geo                 # noqa: E402
+
+cfg = cfg_mod.Config()
+g = Geo(cfg)
+# 条目有两种寻址方式（应用标识 / 文件路径），两种都算数
+n = len(cfg.items)
+
+# 触发展开的位置必须落在**实际吸附的那条边**上 —— 吸附在右边却去碰顶边，
+# 抽屉当然不会弹出来，截到的就只是一张收起态的图
+if g.edge == "top":
+    trigger = (geo.width() // 2, 0)
+elif g.edge == "bottom":
+    trigger = (geo.width() // 2, geo.height() - 1)
+elif g.edge == "left":
+    trigger = (0, geo.height() // 2)
+else:
+    trigger = (geo.width() - 1, geo.height() // 2)
+print("吸附边 = %s   触发展开点 = %s" % (g.edge, trigger))
+
 # 鼠标先放到屏幕中下部，保证抽屉处于收起态
 u32.SetCursorPos(int(geo.width() * 0.5 * DPR), int(geo.height() * 0.72 * DPR))
 time.sleep(0.4)
@@ -53,38 +73,42 @@ time.sleep(5.5)
 img_peek = screen.grabWindow(0).toImage()
 img_peek.save(os.path.join(OUT, "A_peek.png"), "PNG")
 
-# 触发展开：鼠标贴到屏幕顶边中央
-u32.SetCursorPos(int(geo.width() // 2 * DPR), 0)
+# 触发展开
+u32.SetCursorPos(int(trigger[0] * DPR), int(trigger[1] * DPR))
 time.sleep(1.4)
 
 img_open = screen.grabWindow(0).toImage()
 img_open.save(os.path.join(OUT, "B_open_full.png"), "PNG")
 
-# 按真实配置算面板区域，再裁切放大
-from edgedock import config as cfg_mod          # noqa: E402
-from edgedock.drawer import Geo                 # noqa: E402
-
-cfg = cfg_mod.Config()
-g = Geo(cfg)
-n = len([i for i in cfg.items if i.get("path")])
 wr = g.window_rect(n)
-CROP_H = g.thick + 60                            # 下方多留 60px 看有没有倒影
-
-crop = img_open.copy(int(wr.x() * DPR), int(wr.y() * DPR),
-                     int(wr.width() * DPR), int(CROP_H * DPR))
+EXTRA = 60                                       # 面板外侧多留 60px，看有没有多余投影
+if g.horizontal:
+    box = (wr.x(), wr.y(), wr.width(), g.thick + EXTRA)
+else:
+    box = (wr.x(), wr.y(), g.thick + EXTRA, wr.height())
+crop = img_open.copy(int(box[0] * DPR), int(box[1] * DPR),
+                     int(box[2] * DPR), int(box[3] * DPR))
 crop = crop.scaled(int(crop.width() * 1.6), int(crop.height() * 1.6),
                    Qt.KeepAspectRatio, Qt.SmoothTransformation)
 crop.save(os.path.join(OUT, "C_panel_zoom.png"), "PNG")
 
 print("\n图标数 = %d   面板 = %dx%d   窗口逻辑 x=%d y=%d"
       % (n, g.panel_len(n), g.thick, wr.x(), wr.y()))
-pts = [
-    ("左端留白", wr.x() + 7, g.thick // 2),
-    ("右端留白", wr.x() + g.panel_len(n) - 7, g.thick // 2),
-    ("面板正中", wr.x() + g.panel_len(n) // 2, g.thick // 2),
-    ("面板下方 +6", wr.x() + g.panel_len(n) // 2, g.thick + 6),
-    ("面板下方 +24", wr.x() + g.panel_len(n) // 2, g.thick + 24),
-]
+# 取样点：沿边方向取左/中/右（横）或上/中/下（竖），再在面板外侧取两个点
+L = g.panel_len(n)
+mid = g.thick // 2
+if g.horizontal:
+    pts = [("起点留白", wr.x() + 7, mid),
+           ("末端留白", wr.x() + L - 7, mid),
+           ("面板正中", wr.x() + L // 2, mid),
+           ("面板外侧 +6", wr.x() + L // 2, g.thick + 6),
+           ("面板外侧 +24", wr.x() + L // 2, g.thick + 24)]
+else:
+    pts = [("起点留白", wr.x() + mid, wr.y() + 7),
+           ("末端留白", wr.x() + mid, wr.y() + L - 7),
+           ("面板正中", wr.x() + mid, wr.y() + L // 2),
+           ("面板外侧 +6", wr.x() + g.thick + 6, wr.y() + L // 2),
+           ("面板外侧 +24", wr.x() + g.thick + 24, wr.y() + L // 2)]
 for label, lx, ly in pts:
     c = img_open.pixelColor(int(lx * DPR), int(ly * DPR))
     print("  %-14s (%4d,%3d) -> #%02X%02X%02X"

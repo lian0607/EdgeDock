@@ -29,17 +29,21 @@ def launch_item(it: dict) -> bool:
     启动程序这活儿交给 **explorer**，不用 ShellExecuteW。实测下来
     ShellExecute 对着 .exe 和 .lnk 都返回成功码（>32），进程却一个都不起来 ——
     典型的「谎报成功」，光看返回值根本发现不了，用户看到的就是点了没反应。
-    explorer 走的是 shell 自己的激活链路，才真能把程序拉起来，也才认
-    shell:AppsFolder 那类快捷方式。
+    explorer 走的是 shell 自己的激活链路，才真能把程序拉起来。
 
     优先级：
-      1) 快捷方式还在 -> 交给 explorer 打开它。.lnk 上挂着启动参数、工作目录、
+      1) **有 appid** -> explorer 打开 ``shell:AppsFolder\\<标识>``。
+         商店应用只认这条路，桌面上根本没有它的快捷方式。
+      2) 快捷方式还在 -> 交给 explorer 打开它。.lnk 上挂着启动参数、工作目录、
          「以管理员身份运行」标记、应用标识，走它最保真；explorer 会照办提权。
-      2) 快捷方式没了，但记着真实目标 -> 交给 explorer 打开目标本身。
-         **桌面上那个 .lnk 被删掉，程序照样打得开。**
-      3) 条目里额外填了启动参数 -> 只能退回 ShellExecuteW，因为 explorer
+      3) 快捷方式没了，但记着真实目标 -> 交给 explorer 打开目标本身。
+      4) 条目里额外填了启动参数 -> 只能退回 ShellExecuteW，因为 explorer
          没法把参数转交给目标程序。
     """
+    appid = (it.get("appid") or "").strip()
+    if appid:
+        return winapi.explorer_open(winapi.app_spec(appid))
+
     link = it.get("path") or ""
     target = it.get("target") or ""
     args = it.get("args") or ""
@@ -243,9 +247,9 @@ class EdgeDock(QObject):
                                   QSystemTrayIcon.Information, 2500)
 
     # ------------------------------------------------------------------
-    def _launch(self, path: str) -> None:
-        """点图标了。抽屉只递过来一个路径，这里翻出完整条目再启动。"""
-        it = self.cfg.find(path) or {"path": path}
+    def _launch(self, key: str) -> None:
+        """点图标了。抽屉只递过来一个标识（appid 或路径），这里翻出完整条目再启动。"""
+        it = self.cfg.find(key) or {"path": key, "name": ""}
         if launch_item(it):
             return
         # 打不开就去修：重解析快捷方式、或按名字另找一个入口，补齐目标再启动
@@ -258,8 +262,8 @@ class EdgeDock(QObject):
         name = it.get("name") or os.path.splitext(
             os.path.basename(it.get("path", "")))[0] or "这个应用"
         self.tray.showMessage(
-            "EdgeDock", "打不开「%s」：快捷方式和程序都找不到了。\n"
-            "请在设置里重新添加（或右键该图标 → 从抽屉中移除）。" % name,
+            "EdgeDock", "打不开「%s」：这个应用已经不在这台机器上了。\n"
+            "请在设置里重新选择（或右键该图标 → 从抽屉中移除）。" % name,
             QSystemTrayIcon.Warning, 5000)
 
     # ------------------------------------------------------------------

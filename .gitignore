@@ -11,6 +11,8 @@ __pycache__/
 
 # 本机个人配置：桌面路径、图标布局、吸附位置都记在这里，不该进仓库
 config.json
+# 升级 / 迁移工具留下的备份
+config.json.bak-*
 
 # 系统杂项
 Thumbs.db

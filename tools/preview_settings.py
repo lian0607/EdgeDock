@@ -5,7 +5,7 @@
     S_settings_system.png  主题选「跟随系统」时的设置窗口
     S_settings_light.png   浅色主题的设置窗口
     S_settings_dark.png    深色主题的设置窗口
-    S_picker.png           「从桌面挑选应用」窗口
+    S_picker.png           「选择应用」窗口
     S_both.png             浅色 / 深色并排的对比图
 
 用法：.venv\\Scripts\\python.exe tools\\preview_settings.py
@@ -27,7 +27,7 @@ from PySide6.QtWidgets import QApplication
 
 from edgedock import config as cfg_mod
 from edgedock.icons import IconStore
-from edgedock.settings import SettingsDialog, ShortcutPicker
+from edgedock.settings import AppPicker, SettingsDialog
 
 SHOTS = os.path.join(ROOT, "_shots")
 TMP = tempfile.mkdtemp(prefix="edgedock_settings_")
@@ -77,7 +77,7 @@ def main() -> int:
         shoot(dlg, "S_settings_%s.png" % theme)
 
     cfg = make_cfg("light")
-    shoot(ShortcutPicker(cfg), "S_picker.png")
+    shoot(AppPicker(cfg, store), "S_picker.png")
 
     # 把两个主题横向拼一张，方便一眼对比
     a = QImage(os.path.join(SHOTS, "S_settings_light.png"))
