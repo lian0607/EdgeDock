@@ -316,13 +316,18 @@ D:\Program Files (x86)\EdgeDrawer\
 未勾选时没有主题色块；浅色 / 深色各测一遍。
 
 ```bat
-.venv\Scripts\python.exe tools\check_game_mode.py       :: 全屏让路（20 项，真实窗口）
+.venv\Scripts\python.exe tools\check_game_mode.py       :: 全屏让路（21 项，真实窗口）
+.venv\Scripts\python.exe tools\check_game_live.py       :: 外部验收：真全屏一次，看边栏藏不藏
 ```
 
 核对「全屏游戏时隐藏边栏」：矩形判定（正正好、2px 误差、差 40px、**最大化窗口只贴工作区**、
-负坐标的第二显示器）、真开一个无边框全屏窗口确认能认出来、带标题栏的普通窗口不误判、
-让路后窗口隐藏且贴边 / 快捷键都唤不出、退出后原样回来（含钉住状态），
+负坐标的第二显示器）、真开一个无边框全屏窗口确认能认出来、**外框与显示器矩形必须同一坐标系**、
+带标题栏的普通窗口不误判、让路后窗口隐藏且贴边 / 快捷键都唤不出、退出后原样回来（含钉住状态），
 最后跑一遍 `EdgeDock._poll_fullscreen` 的联动与开关生效。
+
+`check_game_live.py` 是**外部**验收：不碰进程内部，自己开一个全屏窗口顶到前台，
+观察正在运行的那个 EdgeDock 实例的边栏窗口是否真的被遮掉、退出后是否回来。
+（挑窗口时按进程名过滤 —— 微信、Snipaste 也都是 Qt 程序，只看窗口类名会认错。）
 
 ```bat
 .venv\Scripts\python.exe tools\verify_real_launch.py Cursor Cursor   :: 真启动一次

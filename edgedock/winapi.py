@@ -95,7 +95,6 @@ def set_topmost(hwnd: int, on: bool) -> None:
 # 全屏检测（全屏游戏 / 全屏视频时给边栏让路）
 # --------------------------------------------------------------------------
 MONITOR_DEFAULTTONEAREST = 2
-DWMWA_EXTENDED_FRAME_BOUNDS = 9
 DWMWA_CLOAKED = 14
 GW_OWNER = 4
 WS_CAPTION, WS_THICKFRAME = 0x00C00000, 0x00040000
@@ -157,13 +156,15 @@ def _covers(rect: _RECT, area: _RECT, tol: int = 2) -> bool:
 
 
 def _frame_rect(hwnd) -> _RECT | None:
-    """窗口的**可见**外框。DWM 的扩展边框不含那圈透明拖拽边，
-    比 GetWindowRect 更能反映「肉眼看到的窗口占了多大」。"""
+    """窗口外框。
+
+    这里**必须**用 GetWindowRect，不能图省事换 DWM 的
+    DWMWA_EXTENDED_FRAME_BOUNDS：后者给的是物理像素，而 GetMonitorInfo
+    对这个进程给的是缩放后的坐标（本机 150% 下 2560 物理 = 1707 逻辑），
+    两套坐标系混着比永远对不上 —— 全屏游戏的 2560 宽跟显示器的 1707 宽
+    差了 800 多像素，判出来当然「不是全屏」。
+    """
     rect = _RECT()
-    if dwmapi is not None:
-        if dwmapi.DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS,
-                                        byref(rect), ctypes.sizeof(rect)) == 0:
-            return rect
     if user32.GetWindowRect(hwnd, byref(rect)):
         return rect
     return None

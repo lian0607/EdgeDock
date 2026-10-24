@@ -80,6 +80,24 @@ check("无边框全屏窗口被认成全屏", winapi.fullscreen_active(ignore_ow
       "active=%s" % winapi.fullscreen_active(ignore_own=False))
 check("自家窗口默认被排除（ignore_own=True）",
       not winapi.fullscreen_active())
+
+# 坐标系一致性：外框和显示器矩形必须能用同一把尺子量。曾经这里混用了
+# DWM 的「物理像素」和 GetMonitorInfo 的「缩放后像素」，150% 缩放下
+# 差出 800 多像素，全屏游戏怎么都判不出来。
+hwnd = int(full.winId())
+rc = winapi._frame_rect(hwnd)
+mon = winapi.user32.MonitorFromWindow(hwnd, winapi.MONITOR_DEFAULTTONEAREST)
+mi = winapi._MONITORINFO()
+mi.cbSize = __import__("ctypes").sizeof(winapi._MONITORINFO)
+winapi.user32.GetMonitorInfoW(mon, __import__("ctypes").byref(mi))
+same = (rc is not None
+        and abs((rc.right - rc.left) - (mi.rcMonitor.right - mi.rcMonitor.left)) <= 2
+        and abs((rc.bottom - rc.top) - (mi.rcMonitor.bottom - mi.rcMonitor.top)) <= 2)
+check("外框与显示器矩形同一坐标系", same,
+      "窗口 %sx%s vs 显示器 %sx%s" % (
+          rc.right - rc.left if rc else "?", rc.bottom - rc.top if rc else "?",
+          mi.rcMonitor.right - mi.rcMonitor.left,
+          mi.rcMonitor.bottom - mi.rcMonitor.top))
 full.close()
 pump(app, 0.3)
 
