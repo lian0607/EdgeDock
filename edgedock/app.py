@@ -141,6 +141,7 @@ def app_icon(t: dict) -> QIcon:
 # ----------------------------------------------------------------------
 class EdgeDock(QObject):
     HOTKEY_POLL = 40
+    GAME_POLL = 600
 
     def __init__(self, app: QApplication):
         super().__init__()
@@ -173,6 +174,14 @@ class EdgeDock(QObject):
         self._hotkey_timer.setInterval(self.HOTKEY_POLL)
         self._hotkey_timer.timeout.connect(self._poll_hotkey)
         self._hotkey_timer.start()
+
+        # 全屏游戏 / 全屏视频期间把边栏收起来：0.6s 一次足够，
+        # 判定本身只是一串只读的窗口查询，开销可以忽略。
+        self._in_game = False
+        self._game_timer = QTimer(self)
+        self._game_timer.setInterval(self.GAME_POLL)
+        self._game_timer.timeout.connect(self._poll_fullscreen)
+        self._game_timer.start()
 
         self._build_tray()
         # 主题选了「跟随系统」时，系统一换配色就跟着换
@@ -282,6 +291,25 @@ class EdgeDock(QObject):
         if down and ok and not self._hot_prev:
             self.drawer.toggle()
         self._hot_prev = down
+
+    # ------------------------------------------------------------------
+    def _poll_fullscreen(self) -> None:
+        """全屏应用占着屏幕时把边栏藏起来。
+
+        游戏里的鼠标经常是相对移动、而且会甩到屏幕边缘 —— 边栏要是还在，
+        划一下就冒出来挡住画面，甚至误点到游戏里的东西。判定只认「前台窗口
+        盖满整块显示器且不是普通窗口」，最大化的浏览器不会误伤。
+        """
+        busy = False
+        if self.cfg["hide_in_game"]:
+            # 用户正在调设置时先别动，免得调试到一半抽屉没了
+            if not (self.settings_dlg is not None
+                    and self.settings_dlg.isVisible()):
+                busy = winapi.fullscreen_active()
+        if busy == self._in_game:
+            return
+        self._in_game = busy
+        self.drawer.set_suspended(busy)
 
     # ------------------------------------------------------------------
     def _ensure_settings(self) -> SettingsDialog:

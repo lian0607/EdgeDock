@@ -39,6 +39,7 @@ DEFAULTS = {
     "offset": 0,               # 沿边偏移(px)
     "pin": False,              # 固定展开（不自动收起）
     "hide_after_launch": True, # 启动应用后自动收起
+    "hide_in_game": True,      # 全屏游戏/全屏应用运行时整条边栏让路
     "hotkey": "Ctrl+Alt+D",
     "autostart": False,
     "show_labels": True,       # 悬停时浮出名称

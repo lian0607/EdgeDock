@@ -92,6 +92,138 @@ def set_topmost(hwnd: int, on: bool) -> None:
 
 
 # --------------------------------------------------------------------------
+# 全屏检测（全屏游戏 / 全屏视频时给边栏让路）
+# --------------------------------------------------------------------------
+MONITOR_DEFAULTTONEAREST = 2
+DWMWA_EXTENDED_FRAME_BOUNDS = 9
+DWMWA_CLOAKED = 14
+GW_OWNER = 4
+WS_CAPTION, WS_THICKFRAME = 0x00C00000, 0x00040000
+
+# 桌面、任务栏、开始菜单、任务视图这一堆虽然是「铺满屏幕」的，但不该算全屏应用
+_SHELL_CLASSES = frozenset((
+    "progman", "workerw", "shell_traywnd", "shell_secondarytraywnd",
+    "windows.ui.core.corewindow", "multitaskingviewframe", "foregroundstaging",
+    "applicationmanager_desktopshellwindow", "xamlexplorerhostislandwindow",
+    "tasklistthumbnailwnd", "edgedock_drawer",
+))
+
+user32.GetForegroundWindow.restype = wintypes.HWND
+user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
+user32.MonitorFromWindow.restype = wintypes.HANDLE
+user32.GetMonitorInfoW.argtypes = [wintypes.HANDLE, c_void_p]
+user32.GetMonitorInfoW.restype = wintypes.BOOL
+user32.GetWindowRect.argtypes = [wintypes.HWND, c_void_p]
+user32.GetWindowRect.restype = wintypes.BOOL
+user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, c_int]
+user32.GetClassNameW.restype = c_int
+user32.GetWindow.argtypes = [wintypes.HWND, c_uint]
+user32.GetWindow.restype = wintypes.HWND
+user32.GetWindowLongW.argtypes = [wintypes.HWND, c_int]
+user32.GetWindowLongW.restype = c_long
+user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, POINTER(wintypes.DWORD)]
+user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+
+try:
+    dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
+    dwmapi.DwmGetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD,
+                                             c_void_p, wintypes.DWORD]
+    dwmapi.DwmGetWindowAttribute.restype = c_long
+except OSError:                      # pragma: no cover - 老系统没有 dwmapi
+    dwmapi = None
+
+
+class _RECT(ctypes.Structure):
+    _fields_ = [("left", c_long), ("top", c_long),
+                ("right", c_long), ("bottom", c_long)]
+
+
+class _MONITORINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", _RECT),
+                ("rcWork", _RECT), ("dwFlags", wintypes.DWORD)]
+
+
+def _covers(rect: _RECT, area: _RECT, tol: int = 2) -> bool:
+    """rect 是否把 area 盖满了（允许 tol 像素误差）。
+
+    全屏游戏哪怕无边框窗口化，边框也是贴着显示器边缘的；反过来说，
+    正常最大化的窗口贴的是**工作区**（任务栏还露着），差出来的那一截
+    正好让它过不了这个判定 —— 所以它不会误伤「最大化的浏览器」。
+    """
+    return (abs(rect.left - area.left) <= tol
+            and abs(rect.top - area.top) <= tol
+            and abs(rect.right - area.right) <= tol
+            and abs(rect.bottom - area.bottom) <= tol)
+
+
+def _frame_rect(hwnd) -> _RECT | None:
+    """窗口的**可见**外框。DWM 的扩展边框不含那圈透明拖拽边，
+    比 GetWindowRect 更能反映「肉眼看到的窗口占了多大」。"""
+    rect = _RECT()
+    if dwmapi is not None:
+        if dwmapi.DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS,
+                                        byref(rect), ctypes.sizeof(rect)) == 0:
+            return rect
+    if user32.GetWindowRect(hwnd, byref(rect)):
+        return rect
+    return None
+
+
+def _is_cloaked(hwnd) -> bool:
+    """UWP 切走之后窗口还"存在"但被 DWM 隐形了 —— 这种不算前台全屏。"""
+    if dwmapi is None:
+        return False
+    val = wintypes.DWORD(0)
+    if dwmapi.DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, byref(val),
+                                    ctypes.sizeof(val)) != 0:
+        return False
+    return bool(val.value)
+
+
+def fullscreen_active(ignore_own: bool = True) -> bool:
+    """前台是不是一个盖满屏幕的应用（全屏游戏 / 全屏视频 / 全屏演示）。
+
+    判定链：前台窗口存在 → 不是桌面类窗口 → 可见且没隐形 → 有外框 →
+    外框盖满它所在显示器。另外把「带标题栏的可缩放窗口」排除掉，
+    它们是普通应用窗口，不是游戏。
+    """
+    try:
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return False
+        cls = ctypes.create_unicode_buffer(256)
+        user32.GetClassNameW(hwnd, cls, 256)
+        if cls.value.strip().lower() in _SHELL_CLASSES:
+            return False
+        if ignore_own:
+            pid = wintypes.DWORD(0)
+            user32.GetWindowThreadProcessId(hwnd, byref(pid))
+            if pid.value == os.getpid():
+                return False
+        if not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
+            return False
+        if _is_cloaked(hwnd):
+            return False
+        # 有标题栏又是可缩放边框的，是普通应用窗口
+        style = user32.GetWindowLongW(hwnd, -16)          # GWL_STYLE
+        if (style & WS_CAPTION) == WS_CAPTION and (style & WS_THICKFRAME):
+            return False
+        rect = _frame_rect(hwnd)
+        if rect is None or rect.right <= rect.left:
+            return False
+        mon = user32.MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)
+        if not mon:
+            return False
+        mi = _MONITORINFO()
+        mi.cbSize = ctypes.sizeof(_MONITORINFO)
+        if not user32.GetMonitorInfoW(mon, byref(mi)):
+            return False
+        return _covers(rect, mi.rcMonitor)
+    except Exception:
+        return False
+
+
+# --------------------------------------------------------------------------
 # 全局热键
 # --------------------------------------------------------------------------
 # 这里只做「解析」，不做注册。热键靠 app.py 轮询 GetAsyncKeyState 实现

@@ -164,6 +164,7 @@ class SettingsDialog(QDialog):
         cv.addLayout(self._slider_row("自动收起延时", "hide_delay", 120, 2500, 20, "ms"))
         cv.addWidget(self._check("鼠标悬停时浮出名称", "show_labels"))
         cv.addWidget(self._check("启动应用后自动收起", "hide_after_launch"))
+        cv.addWidget(self._check("全屏游戏时隐藏边栏", "hide_in_game"))
         cv.addLayout(self._hotkey_row())
         lay_l.addStretch(1)
 

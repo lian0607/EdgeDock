@@ -409,6 +409,7 @@ class DrawerWindow(QWidget):
         self.reveal = 0.0
         self.target = 0.0
         self.pinned = bool(cfg["pin"])
+        self.suspended = False        # 全屏游戏期间整条边栏让路（见 set_suspended）
         self.hold_open = False        # 打开设置窗口期间强制保持展开
         self.drag_over = False        # 正在被拖拽悬停（从桌面拖文件进来）
         # 抽屉内拖动排序
@@ -587,6 +588,8 @@ class DrawerWindow(QWidget):
         self._anim.start()
 
     def expand(self) -> None:
+        if self.suspended:
+            return
         self._dwell = 0
         self._away = 0
         # 立刻关掉鼠标穿透，否则拖拽落点会被穿过（拖放需要在展开瞬间就可命中）
@@ -599,6 +602,8 @@ class DrawerWindow(QWidget):
         self._animate_to(0.0, 200)
 
     def toggle(self) -> None:
+        if self.suspended:
+            return
         if self.target > 0.5:
             self.pinned = False
             self.collapse()
@@ -612,11 +617,35 @@ class DrawerWindow(QWidget):
         if self.pinned:
             self.expand()
 
+    def set_suspended(self, on: bool) -> None:
+        """全屏游戏/全屏视频期间让路：整条边栏藏起来，也不再响应贴边。
+
+        只是隐藏窗口，不销毁、不重建 —— 退出游戏后原样回来，图标的
+        布局和滚动位置都还在。
+        """
+        on = bool(on)
+        if on == self.suspended:
+            return
+        self.suspended = on
+        if on:
+            self.toast.hide_name()
+            self._anim.stop()
+            self.reveal = self.target = 0.0
+            self._on_reveal(0.0)
+            self._dwell = self._away = 0
+            self._poll.stop()                 # 停止轮询：不再判定贴边
+            self.hide()
+        else:
+            self.show()
+            self._apply_win_style()           # 重新贴 TOOLWINDOW / 穿透，并重启轮询
+            if self.pinned:                   # 之前钉住的，回来还是钉住的
+                self.expand()
+
     # ------------------------------------------------------------------
     #  轮询：贴边唤出 / 移开收起
     # ------------------------------------------------------------------
     def _tick(self) -> None:
-        if not self.isVisible():
+        if self.suspended or not self.isVisible():
             return
         pos = QCursor.pos()
         cfg = self.cfg
