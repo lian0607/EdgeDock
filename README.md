@@ -208,7 +208,7 @@ UWP 应用也收进来的来源。桌面和「开始」菜单作为补充，同�
 ## 五、目录结构
 
 ```
-D:\Program Files (x86)\EdgeDrawer\
+D:\Program Files (x86)\EdgeDock\
 ├─ 启动 EdgeDock.vbs        ← 双击这个
 ├─ 调试运行.bat              ← 想看到报错信息时用它
 ├─ 安装运行环境.bat          ← 换机器 / 环境损坏时重建 .venv

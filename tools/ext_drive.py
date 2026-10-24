@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import ctypes
+import os
 import sys
 import time
 from ctypes import wintypes
@@ -69,7 +70,8 @@ SCALE = PW / float(SW) if PW > SW else 1.0
 # 于是：截图上的坐标要**除以**缩放倍数才是该传给 SetCursorPos 的值。
 # 拿 GetWindowRect 量菜单验证过：菜单真实矩形 (846,53,1032,316)，
 # 在截图上量出来是 (1269,79,1548,474) —— 正好差 1.5 倍。
-ROOT = r"D:\Program Files (x86)\EdgeDrawer"
+# 截图存哪儿：从脚本位置推，别写死绝对路径（项目目录改过两次名了）。
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def shot(name: str) -> None:
