@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon
@@ -487,11 +488,16 @@ class SettingsDialog(QDialog):
         """
         btn = self.btn_shortcut
         lnk = os.path.join(winapi.desktop_dirs()[0], self.LNK_NAME)
+        if cfg_mod.FROZEN:
+            # 打包版：快捷方式直接指 exe，图标已经嵌在 exe 里
+            target = icon = sys.executable
+        else:
+            target = os.path.join(cfg_mod.ROOT, "启动 EdgeDock.vbs")
+            icon = os.path.join(cfg_mod.ROOT, "assets", "edgedock.ico")
         ok = winapi.create_lnk(
-            lnk,
-            os.path.join(cfg_mod.ROOT, "启动 EdgeDock.vbs"),
+            lnk, target,
             workdir=cfg_mod.ROOT,
-            icon=os.path.join(cfg_mod.ROOT, "assets", "edgedock.ico"),
+            icon=icon,
             desc="EdgeDock · 吸附在屏幕边缘的应用启动器")
         btn.setText("已放到桌面 ✓" if ok else "创建失败 ✗")
         QTimer.singleShot(2200, lambda: btn.setText("添加桌面图标"))

@@ -23,3 +23,14 @@ desktop.ini
 _probe_*
 _ext_*.png
 _proof_*.png
+_exe_*.png
+_t_*.py
+
+# 打包产物（要发 Release 就自己重新跑 tools/build_release.py）
+build/
+build_dbg/
+dist/
+dist_dbg/
+release/
+*.spec
+*.log

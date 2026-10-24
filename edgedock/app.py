@@ -60,6 +60,9 @@ def launch_item(it: dict) -> bool:
 
 
 def autostart_command() -> str:
+    """开机自启的那条命令行：打包版就是 exe 自己，开发版走 venv 的 pythonw。"""
+    if config_mod.FROZEN:
+        return '"%s"' % sys.executable
     root = config_mod.ROOT
     pw = os.path.join(root, ".venv", "Scripts", "pythonw.exe")
     if not os.path.exists(pw):

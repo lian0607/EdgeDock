@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 
 from . import apps
 from . import winapi
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 打包成 exe 之后 __file__ 在临时解压目录里，配置和缓存必须落到 exe 边上，
+# 否则每次重启都「失忆」——绿色版就该是一个文件夹走天下。
+FROZEN = bool(getattr(sys, "frozen", False))
+if FROZEN:
+    ROOT = os.path.dirname(os.path.abspath(sys.executable))
+else:
+    ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # 默认读写程序目录下的 config.json；设置 EDGEDOCK_CONFIG 可以指到别处，
 # 自检脚本靠它跑一份临时配置，不碰使用者自己的设置。
 CONFIG_PATH = os.environ.get("EDGEDOCK_CONFIG") or os.path.join(ROOT, "config.json")
