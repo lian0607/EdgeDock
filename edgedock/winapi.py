@@ -96,7 +96,6 @@ def set_topmost(hwnd: int, on: bool) -> None:
 # --------------------------------------------------------------------------
 MONITOR_DEFAULTTONEAREST = 2
 DWMWA_CLOAKED = 14
-GW_OWNER = 4
 WS_CAPTION, WS_THICKFRAME = 0x00C00000, 0x00040000
 
 # 桌面、任务栏、开始菜单、任务视图这一堆虽然是「铺满屏幕」的，但不该算全屏应用
@@ -265,7 +264,6 @@ def parse_hotkey(text: str) -> tuple[int, int] | None:
 # --------------------------------------------------------------------------
 SHGFI_ICON = 0x00000100
 SHGFI_LARGEICON = 0x00000000
-SHGFI_SMALLICON = 0x00000001
 SHGFI_SYSICONINDEX = 0x00004000
 SHGFI_USEFILEATTRIBUTES = 0x00000010
 FILE_ATTRIBUTE_NORMAL = 0x00000080

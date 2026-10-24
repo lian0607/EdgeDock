@@ -24,7 +24,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QGuiApplication, QImage
+from PySide6.QtGui import QGuiApplication
 
 PYW = os.path.join(ROOT, ".venv", "Scripts", "pythonw.exe")
 MAIN = os.path.join(ROOT, "main.pyw")

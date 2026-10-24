@@ -21,7 +21,6 @@ from PySide6.QtGui import QColor, QFont, QImage, QPainter   # noqa: E402
 from PySide6.QtWidgets import QApplication                  # noqa: E402
 
 from edgedock import config as cfg_mod                      # noqa: E402
-from edgedock import theme as theme_mod                     # noqa: E402
 from edgedock.drawer import DrawerWindow                    # noqa: E402
 from edgedock.icons import IconStore                        # noqa: E402
 

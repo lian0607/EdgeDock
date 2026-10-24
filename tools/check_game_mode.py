@@ -157,7 +157,6 @@ pump(app, 0.4)
 
 print("== 4. EdgeDock 联动 ==")
 from edgedock.app import EdgeDock                      # noqa: E402
-from PySide6.QtWidgets import QApplication as _QA      # noqa: E402
 
 dock = EdgeDock(app)
 pump(app, 0.4)

@@ -19,11 +19,10 @@ sys.path.insert(0, ROOT)
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import (QColor, QFont, QImage, QLinearGradient, QPainter,
-                           QPainterPath, QRadialGradient)
+                           QRadialGradient)
 from PySide6.QtWidgets import QApplication
 
 from edgedock import config as cfg_mod
-from edgedock import theme as theme_mod
 from edgedock.drawer import DrawerWindow
 from edgedock.icons import IconStore
 

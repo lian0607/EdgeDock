@@ -77,7 +77,6 @@ def main():
         p = w.mapTo(dlg, w.rect().topLeft())
         print("  list   x=%-4d y=%-4d w=%-4d h=%d"
               % (p.x(), p.y(), w.width(), w.height()))
-    names = {id(w): n for n, w in (("吸", None),)}
     for card in dlg.findChildren(QFrame):
         if card.objectName() not in ("Card", "FootLine"):
             continue

@@ -789,17 +789,14 @@ class DrawerWindow(QWidget):
         menu.addSeparator()
         act_kill = menu.addAction("从抽屉中移除")
         menu.addSeparator()
-        act_set = menu.addAction("设置…")
-        act_quit = menu.addAction("退出 EdgeDock")
+        self._add_tail(menu)                       # 设置… / 退出
 
         act_open.triggered.connect(lambda: self.launchRequested.emit(key))
         act_loc.triggered.connect(lambda: reveal_in_explorer(where))
         act_front.triggered.connect(lambda: self._reorder(key, -999))
         act_back.triggered.connect(lambda: self._reorder(key, 999))
         act_kill.triggered.connect(lambda: self._remove(key))
-        act_set.triggered.connect(self.settingsRequested.emit)
-        act_quit.triggered.connect(self.quitRequested.emit)
-        menu.exec(global_pos)
+        self._popup(menu, global_pos)
 
     def _reorder(self, key: str, delta: int) -> None:
         items = self.cfg.items
@@ -822,16 +819,38 @@ class DrawerWindow(QWidget):
         menu.setStyleSheet(theme_mod.menu_qss(self.t))
         return menu
 
+    def _add_tail(self, menu: QMenu) -> None:
+        """两个右键菜单的尾巴都是这两项，别写两遍。"""
+        menu.addAction("设置…", self.settingsRequested.emit)
+        menu.addAction("退出 EdgeDock", self.quitRequested.emit)
+
+    def _popup(self, menu: QMenu, pos: QPoint) -> None:
+        """弹菜单期间把抽屉按住，别让它按时收起。
+
+        菜单挂在抽屉窗口上，是它的子窗口：鼠标一离开面板，hide_delay(700ms)
+        一到抽屉就收，菜单跟着一起没影 —— 手慢一点，菜单就是「闪一下」。
+        这里临时按住，松开时还原上一手的状态（设置窗口开着的时候本来就是
+        按住的，不能被我这一趟给松掉）。
+        """
+        prev = self.hold_open
+        self.hold_open = True
+        self._away = 0
+        try:
+            menu.exec(pos)
+        finally:
+            self.hold_open = prev
+            self._away = 0
+            menu.deleteLater()        # 每次右键都新建一个，别攒着
+
     def contextMenuEvent(self, event):
         menu = self._menu()
         a_pin = menu.addAction("固定展开")
         a_pin.setCheckable(True)
         a_pin.setChecked(self.pinned)
-        menu.addSeparator()
-        menu.addAction("设置…", self.settingsRequested.emit)
-        menu.addAction("退出 EdgeDock", self.quitRequested.emit)
         a_pin.toggled.connect(self.set_pinned)
-        menu.exec(event.globalPos())
+        menu.addSeparator()
+        self._add_tail(menu)
+        self._popup(menu, event.globalPos())
 
     def wheelEvent(self, event):
         overflow = self._content_len - self.geo.panel_len(len(self.buttons))

@@ -292,6 +292,14 @@ D:\Program Files (x86)\EdgeDrawer\
 > 它会直接停下并提示，不会给出误导性的结论。
 
 ```bat
+.venv\Scripts\python.exe tools\check_menu.py
+```
+
+核对右键菜单**不会跟着抽屉一起消失**：菜单是抽屉的子窗口，鼠标从图标挪到菜单上
+其实已经离开了面板，抽屉一到点就自动收，菜单跟着没影——手慢一点就是「闪一下」。
+这条测试里留了反证组：把代码换回旧写法（`menu.exec` 不按住），对应的断言必须挂。
+
+```bat
 .venv\Scripts\python.exe tools\test_reorder.py        :: 拖动排序（40 项断言，进程内）
 .venv\Scripts\python.exe tools\check_reorder_live.py  :: 拖动排序（真实桌面，走鼠标消息）
 ```

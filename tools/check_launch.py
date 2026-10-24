@@ -223,8 +223,6 @@ def main() -> int:
     raw[20:24] = (int.from_bytes(raw[20:24], "little") | 0x00002000).to_bytes(4, "little")
     open(runas_lnk, "wb").write(bytes(raw))
     check("RunAs 位已写入", bool(winapi._lnk_flags(runas_lnk) & 0x2000))
-    runas_it = {"path": runas_lnk, "name": "管理员应用", "args": "",
-                "target": "", "workdir": "", "runas": False}
     check("解析出 runas=True", winapi.resolve_lnk(runas_lnk)["runas"] is True)
     cfg_r = new_cfg([runas_lnk])
     r_it = cfg_r.items[0]
@@ -347,7 +345,7 @@ def main() -> int:
 
     # ---- 8. 设置列表的状态文案 ----
     print("\n[8] 设置列表里的状态提示")
-    app = QApplication.instance() or QApplication([])
+    QApplication.instance() or QApplication([])
     from edgedock.icons import IconStore                         # noqa: E402
     from edgedock.settings import SettingsDialog                 # noqa: E402
     winapi.create_lnk(lnk, exe, workdir=TMP)                     # 把快捷方式再造回来

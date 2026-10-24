@@ -103,6 +103,19 @@ def main(argv: list[str]) -> int:
         rel = res
         print("Release 建好了：", rel["html_url"])
 
+    # 同名资产得先删掉：GitHub 不允许重名，直接传会 422。
+    # 这样「重新发一版」就是覆盖，而不是攒一堆 _v2 之类的垃圾。
+    old = {a["name"]: a["id"] for a in rel.get("assets", [])}
+    for path in assets:
+        name = os.path.basename(path)
+        if name in old:
+            st, _ = call("DELETE", "%s/repos/%s/releases/assets/%d"
+                         % (API, full, old[name]), tk)
+            if st not in (204, 200):
+                print("删旧资产失败", name, st)
+                return 1
+            print("  覆盖旧资产：", name)
+
     for path in assets:
         name = os.path.basename(path)
         raw = open(path, "rb").read()
