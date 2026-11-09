@@ -21,8 +21,8 @@
 
 | 下载 | 说明 |
 | --- | --- |
-| **[EdgeDock-v1.0.0-win64.zip](https://github.com/lian0607/EdgeDock/releases/download/v1.0.0/EdgeDock-v1.0.0-win64.zip)** | 免安装绿色版，约 38 MB。解压出 `EdgeDock.exe`，双击就跑 |
-| **[EdgeDock-v1.0.0-source.zip](https://github.com/lian0607/EdgeDock/releases/download/v1.0.0/EdgeDock-v1.0.0-source.zip)** | 源代码。想改代码就走这个：解压后双击 `安装运行环境.bat` |
+| **[EdgeDock-v1.1.0-win64.zip](https://github.com/lian0607/EdgeDock/releases/download/v1.1.0/EdgeDock-v1.1.0-win64.zip)** | 免安装绿色版，约 38 MB。解压出 `EdgeDock.exe`，双击就跑 |
+| **[EdgeDock-v1.1.0-source.zip](https://github.com/lian0607/EdgeDock/releases/download/v1.1.0/EdgeDock-v1.1.0-source.zip)** | 源代码。想改代码就走这个：解压后双击 `安装运行环境.bat` |
 
 配置（`config.json`）和图标缓存（`cache\icons`）都写在 **exe 旁边**，整个文件夹可以随便搬、
 复制到 U 盘里也行；删掉 `config.json` 就恢复默认。
