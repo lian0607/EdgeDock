@@ -28,8 +28,8 @@ HOTKEYS = ["Ctrl+Alt+D", "Ctrl+Shift+D", "Alt+`", "Ctrl+Alt+Space", "禁用"]
 LABEL_W = 84        # 设置项名称列宽
 SLIDER_W = 170      # 滑杆最大宽度：拉太长的话数值读数会飘到很远，眼睛要来回跑
 VALUE_W = 48        # 数值读数列宽
-COL_GAP = 14        # 左右两列之间的间距
-CARD_GAP = 14       # 卡片之间的间距
+COL_GAP = 16        # 左右两列之间的间距
+CARD_GAP = 16       # 卡片之间的间距
 
 
 def apply_immersive(dlg: QDialog, t: dict) -> None:
@@ -97,24 +97,22 @@ class SettingsDialog(QDialog):
 
     # ------------------------------------------------------------------
     def _build(self) -> None:
-        self._card_no = 0
         root = QVBoxLayout(self)
-        root.setContentsMargins(18, 16, 18, 16)
+        root.setContentsMargins(20, 18, 20, 16)
         root.setSpacing(12)
 
         head = QHBoxLayout()
-        head.setSpacing(10)
+        head.setSpacing(8)
         title = QLabel("EdgeDock")
         title.setObjectName("Title")
-        brand = QLabel("// settings")
+        brand = QLabel("设置")
         brand.setObjectName("Brand")
         ver = QLabel("吸附在屏幕边缘的应用启动器")
         ver.setObjectName("Hint")
         head.addWidget(title)
         head.addWidget(brand)
-        head.addSpacing(6)
-        head.addWidget(ver)
         head.addStretch(1)
+        head.addWidget(ver)
         root.addLayout(head)
 
         area = QScrollArea()
@@ -271,28 +269,24 @@ class SettingsDialog(QDialog):
 
     # ------------------------------------------------------------------
     def _card(self, parent_layout, title: str):
-        """往父布局里加「编号 + 标题 + 卡片」，返回卡片内部的竖直布局。
+        """往父布局里加「小标题 + 卡片」，返回卡片内部的竖直布局。
 
-        编号是装饰性的：等宽小字 + 荧光绿，让五张卡片读起来像终端里的一段
-        配置清单，而不是五个圆角盒子。
+        标题是浅灰色的小字，压在卡片左上角：让五张卡片读起来像同一页上
+        排好的五段，而不是五个各说各话的盒子。
         """
-        self._card_no += 1
         head = QHBoxLayout()
-        head.setContentsMargins(0, 0, 0, 0)
+        head.setContentsMargins(2, 0, 0, 0)
         head.setSpacing(7)
-        num = QLabel("%02d" % self._card_no)
-        num.setObjectName("Step")
         lab = QLabel(title)
         lab.setObjectName("Section")
-        head.addWidget(num)
         head.addWidget(lab)
         head.addStretch(1)
 
         card = QFrame()
         card.setObjectName("Card")
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(12, 11, 12, 11)
-        lay.setSpacing(7)
+        lay.setContentsMargins(13, 12, 13, 12)
+        lay.setSpacing(8)
         # 标题跟自己的卡片贴紧一点，跟上一张卡片分开一点，层级才看得清
         wrap = QVBoxLayout()
         wrap.setContentsMargins(0, 0, 0, 0)
