@@ -680,6 +680,46 @@ def explorer_open(path: str) -> bool:
         return False
 
 
+CREATE_NEW_PROCESS_GROUP = 0x00000200
+
+
+def spawn(path: str, args: str = "", workdir: str = "", runas: bool = False) -> bool:
+    """直接把程序拉起来，不经过 explorer。
+
+    explorer 转发看着省事，实际要多绕一圈：shell 的激活链路要排队、遇到已有
+    实例还会做合流，用户感知就是「点了没反应，过两秒才开」。直接 CreateProcess
+    的话，点击到进程创建在几十毫秒内完成。
+
+    两种例外仍然交给 shell：
+      * 勾了「以管理员身份运行」的快捷方式 —— 必须走 runas，UAC 才会弹；
+      * .bat / .cmd —— 得有个 cmd.exe 来解释。
+    """
+    if not path or not os.path.exists(path):
+        return False
+    folder = workdir or os.path.dirname(path) or None
+    if runas:
+        try:
+            ret = shell32.ShellExecuteW(None, "runas", path, args or None,
+                                        folder, SW_SHOWNORMAL)
+            return int(ret) > 32
+        except Exception:
+            return False
+    try:
+        if path.lower().endswith((".bat", ".cmd")):
+            cmd = ["cmd.exe", "/c", path]
+        else:
+            # 用字符串形式交给 Popen：Windows 自己按引号规则拆参数，
+            # 比自己 split 更不容易把带空格的参数拆坏
+            cmd = '"%s"' % path
+            if args:
+                cmd += " " + args
+        subprocess.Popen(cmd, cwd=folder, close_fds=True,
+                         creationflags=CREATE_NEW_PROCESS_GROUP)
+        return True
+    except Exception:
+        return False
+
+
 SHELL_FOLDERS = (r"Software\Microsoft\Windows\CurrentVersion\Explorer"
                  r"\User Shell Folders")
 

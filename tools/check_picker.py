@@ -34,7 +34,8 @@ PASS = FAIL = 0
 
 # 用一个**真实存在**于候选池里的应用当测试样本（假应用id不在池里，测不了勾选）
 POOL = apps_mod.scan_apps()
-SAMPLE = next(a for a in POOL if not apps_mod.is_system_tool(a) and a["appid"])
+# 控制面板来源的条目走 path（不再有 appid），筛「池里第一个非系统工具」即可
+SAMPLE = next(a for a in POOL if not apps_mod.is_system_tool(a))
 
 
 def check(name: str, ok: bool, detail: str = "") -> None:
@@ -79,7 +80,7 @@ check("按开始菜单分组认出系统工具",
 
 print("== 2. 初始勾选状态（键匹配 + 名字兜底） ==")
 cfg = fresh_config([
-    {"path": SAMPLE.get("path", ""), "appid": SAMPLE["appid"],
+    {"path": SAMPLE.get("path", ""), "appid": SAMPLE.get("appid", ""),
      "name": SAMPLE["name"]},
     dict(GREEN),     # 池外条目：路径是编的，scan_apps 里不会有
 ])
@@ -90,11 +91,11 @@ check("池外条目不在列表里", row_of(dlg, "GreenTool") is None)
 print("== 3. 全不选 + 确定 -> 拦截（回答「否」） ==")
 # 两条都是池内条目：全不选之后确定，列表会清空，必须被拦截问一句
 SAMPLE2 = next(a for a in POOL if a is not SAMPLE
-               and not apps_mod.is_system_tool(a) and a["appid"])
+               and not apps_mod.is_system_tool(a))
 cfg = fresh_config([
-    {"path": SAMPLE.get("path", ""), "appid": SAMPLE["appid"],
+    {"path": SAMPLE.get("path", ""), "appid": SAMPLE.get("appid", ""),
      "name": SAMPLE["name"]},
-    {"path": SAMPLE2.get("path", ""), "appid": SAMPLE2["appid"],
+    {"path": SAMPLE2.get("path", ""), "appid": SAMPLE2.get("appid", ""),
      "name": SAMPLE2["name"]},
 ])
 dlg = picker(cfg)

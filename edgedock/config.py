@@ -383,7 +383,9 @@ def seed_items() -> list[dict]:
     for key in SEED_ORDER:
         low = key.lower()
         for a in pool:
-            if a not in picked and a["name"].lower().startswith(low):
+            # 控制面板里的名字常带公司前缀和版本号（"Microsoft Visual Studio
+            # Code (User)"），按开头匹配会一个都挑不到，改成包含
+            if a not in picked and low in a["name"].lower():
                 picked.append(a)
                 break
     return (picked or pool[:10])[:12]

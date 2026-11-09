@@ -242,7 +242,12 @@ class IconButton(QWidget):
         if was_drag:
             self.dragFinished.emit(self, True)       # 拖动排序收尾，不触发启动
             return
-        if self.rect().contains(event.position().toPoint()):
+        # 悬停时图标会放大到 1.16 倍，视觉上已经超出按钮边界。Qt 的 release
+        # 只会发给按下时的那个 widget，所以这里不必再判 rect —— 判了反而让
+        # 「点放大后的外圈」变成没反应，正是那种偶发的「点了没动静」。
+        # 只有按下后确实拖开一段（想反悔）才算取消。
+        moved = (event.position() - self.grab_offset).manhattanLength()
+        if moved <= 24:
             self.activated.emit(self.key)
 
     def contextMenuEvent(self, event):
@@ -663,8 +668,13 @@ class DrawerWindow(QWidget):
             else:
                 self._dwell = 0
         else:
-            # 拖动排序期间不要自动收起，否则拖到一半抽屉没了
+            # 拖动排序期间不要自动收起，否则拖到一半抽屉没了。
+            # 鼠标左键还按着时也不收：用户正按在图标上准备松手启动，
+            # 这时候把窗口藏掉，release 就丢了 —— 表现同样是「点了没反应」。
             if self.pinned or self.hold_open or self.drag_index is not None:
+                self._away = 0
+                return
+            if QApplication.mouseButtons() & Qt.LeftButton:
                 self._away = 0
                 return
             keep = self.geo.panel_screen_rect(len(self.buttons), 1.0)

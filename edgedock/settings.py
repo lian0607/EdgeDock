@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+import webbrowser
 
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon
@@ -96,17 +97,22 @@ class SettingsDialog(QDialog):
 
     # ------------------------------------------------------------------
     def _build(self) -> None:
+        self._card_no = 0
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 16, 18, 16)
         root.setSpacing(12)
 
         head = QHBoxLayout()
-        title = QLabel("边缘抽屉")
+        head.setSpacing(10)
+        title = QLabel("EdgeDock")
         title.setObjectName("Title")
-        ver = QLabel("EdgeDock · 吸附在屏幕边缘的应用启动器")
+        brand = QLabel("// settings")
+        brand.setObjectName("Brand")
+        ver = QLabel("吸附在屏幕边缘的应用启动器")
         ver.setObjectName("Hint")
         head.addWidget(title)
-        head.addSpacing(10)
+        head.addWidget(brand)
+        head.addSpacing(6)
         head.addWidget(ver)
         head.addStretch(1)
         root.addLayout(head)
@@ -146,19 +152,19 @@ class SettingsDialog(QDialog):
         cols.addWidget(col_r, 1)
 
         # ---- 左列 · 吸附位置 ----
-        cv = self._card(lay_l, "吸 附 位 置")
+        cv = self._card(lay_l, "吸附位置")
         cv.addLayout(self._seg_row("吸附到", EDGES, "edge"))
         cv.addLayout(self._seg_row("沿边位置", SLOTS, "slot"))
         cv.addLayout(self._slider_row("沿边偏移", "offset", -420, 420, 4, "px"))
 
         # ---- 左列 · 外观 ----
-        cv = self._card(lay_l, "外 观")
+        cv = self._card(lay_l, "外观")
         cv.addLayout(self._slider_row("图标大小", "icon_size", 28, 62, 1, "px"))
         cv.addLayout(self._slider_row("面板不透明度", "panel_opacity", 55, 100, 1, "%"))
         cv.addLayout(self._seg_row("主题", THEME_OPTIONS, "theme"))
 
         # ---- 左列 · 交互 ----
-        cv = self._card(lay_l, "交 互")
+        cv = self._card(lay_l, "交互")
         cv.addLayout(self._slider_row("触手条厚度", "peek", 0, 14, 1, "px"))
         cv.addLayout(self._slider_row("触发区厚度", "trigger_px", 1, 10, 1, "px"))
         cv.addLayout(self._slider_row("停留判定", "dwell", 0, 500, 10, "ms"))
@@ -167,10 +173,22 @@ class SettingsDialog(QDialog):
         cv.addWidget(self._check("启动应用后自动收起", "hide_after_launch"))
         cv.addWidget(self._check("全屏游戏时隐藏边栏", "hide_in_game"))
         cv.addLayout(self._hotkey_row())
+
+        # ---- 左列 · 关于 ----
+        # 左列比右列短一大截，空着难看；顺手把「这是本地程序、不联网」说清楚
+        cv = self._card(lay_l, "关于")
+        cv.addWidget(self._hint("本地运行 · 不联网 · 配置即改即生效"))
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        home = QPushButton("项目主页")
+        home.clicked.connect(self._open_home)
+        row.addWidget(home)
+        row.addStretch(1)
+        cv.addLayout(row)
         lay_l.addStretch(1)
 
         # ---- 右列 · 抽屉里的应用 ----
-        cv = self._card(lay_r, "抽 屉 里 的 应 用")
+        cv = self._card(lay_r, "抽屉里的应用")
         self.list = QListWidget()
         self.list.setFixedHeight(330)
         self.list.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -182,7 +200,7 @@ class SettingsDialog(QDialog):
         # 六个按钮挤一行在这个列宽下放不下，拆成「增删 / 排序」两行
         bar1 = QHBoxLayout()
         bar1.setSpacing(8)
-        for text, fn in (("从系统选择…", self._pick_apps),
+        for text, fn in (("控制面板…", self._pick_apps),
                          ("添加文件…", self.add_files)):
             b = QPushButton(text)
             b.clicked.connect(fn)
@@ -210,7 +228,7 @@ class SettingsDialog(QDialog):
         self.setAcceptDrops(True)
 
         # ---- 右列 · 启动 ----
-        cv = self._card(lay_r, "启 动")
+        cv = self._card(lay_r, "启动")
         cv.addWidget(self._check("开机自动启动", "autostart"))
         row = QHBoxLayout()
         row.setSpacing(8)
@@ -238,6 +256,9 @@ class SettingsDialog(QDialog):
         root.addWidget(line)
 
         foot = QHBoxLayout()
+        note = QLabel("改动即时生效 · 快捷键 %s" % self.cfg["hotkey"])
+        note.setObjectName("Hint")
+        foot.addWidget(note)
         foot.addStretch(1)
         close = QPushButton("完成")
         close.setObjectName("Primary")
@@ -250,22 +271,43 @@ class SettingsDialog(QDialog):
 
     # ------------------------------------------------------------------
     def _card(self, parent_layout, title: str):
-        """往父布局里加「小标题 + 卡片」，返回卡片内部的竖直布局。"""
+        """往父布局里加「编号 + 标题 + 卡片」，返回卡片内部的竖直布局。
+
+        编号是装饰性的：等宽小字 + 荧光绿，让五张卡片读起来像终端里的一段
+        配置清单，而不是五个圆角盒子。
+        """
+        self._card_no += 1
+        head = QHBoxLayout()
+        head.setContentsMargins(0, 0, 0, 0)
+        head.setSpacing(7)
+        num = QLabel("%02d" % self._card_no)
+        num.setObjectName("Step")
         lab = QLabel(title)
         lab.setObjectName("Section")
+        head.addWidget(num)
+        head.addWidget(lab)
+        head.addStretch(1)
+
         card = QFrame()
         card.setObjectName("Card")
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(14, 12, 14, 12)
-        lay.setSpacing(8)
+        lay.setContentsMargins(12, 11, 12, 11)
+        lay.setSpacing(7)
         # 标题跟自己的卡片贴紧一点，跟上一张卡片分开一点，层级才看得清
         wrap = QVBoxLayout()
         wrap.setContentsMargins(0, 0, 0, 0)
-        wrap.setSpacing(6)
-        wrap.addWidget(lab)
+        wrap.setSpacing(5)
+        wrap.addLayout(head)
         wrap.addWidget(card)
         parent_layout.addLayout(wrap)
         return lay
+
+    @staticmethod
+    def _hint(text: str) -> QLabel:
+        lab = QLabel(text)
+        lab.setObjectName("Hint")
+        lab.setWordWrap(True)
+        return lab
 
     def _label(self, text: str, width: int = LABEL_W) -> QLabel:
         lab = QLabel(text)
@@ -465,6 +507,10 @@ class SettingsDialog(QDialog):
         event.acceptProposedAction()
 
     # ------------------------------------------------------------------
+    @staticmethod
+    def _open_home() -> None:
+        webbrowser.open("https://github.com/lian0607/EdgeDock")
+
     def _open_root(self) -> None:
         try:
             os.startfile(cfg_mod.ROOT)
@@ -539,7 +585,7 @@ class AppPicker(QDialog):
         self.cfg = cfg
         self.store = store
         self.t = theme_mod.get(cfg["theme"])
-        self.setWindowTitle("选择应用")
+        self.setWindowTitle("选择程序")
         self.setFixedSize(560, 660)
         self.setStyleSheet(theme_mod.settings_qss(self.t))
         self.pool = apps_mod.scan_apps()
@@ -563,7 +609,7 @@ class AppPicker(QDialog):
 
         # 系统工具（控制面板、管理工具那一类）默认不显示 —— 能打开，但没人
         # 会想把它们放进抽屉。开关状态记进配置，下次打开还保持。
-        self.chk_sys = QCheckBox("隐藏系统工具（控制面板、管理工具之类）")
+        self.chk_sys = QCheckBox("隐藏系统组件（运行库、驱动、服务）")
         self.chk_sys.setChecked(bool(cfg["hide_sys"]))
         self.chk_sys.toggled.connect(self._on_hide_sys)
         v.addWidget(self.chk_sys)
@@ -636,8 +682,8 @@ class AppPicker(QDialog):
     def _label_of(app: dict) -> str:
         label = app["name"]
         src = apps_mod.SOURCE_LABEL.get(app.get("source", ""), "")
-        # 只有不是「应用列表」的才标来源，否则满屏都是同一个标签
-        if src and app.get("source") != "apps":
+        # 只有兜底来源才标，否则满屏都是同一个标签
+        if src and app.get("source") not in ("apps", "installed"):
             label += "    · %s" % src
         return label
 
@@ -654,8 +700,8 @@ class AppPicker(QDialog):
             if not hide:
                 visible += 1
         total = len(self.pool)
-        self.lab.setText("勾选要放进抽屉的应用（共 %d 个%s）"
-                         % (total, "，显示 %d" % visible if visible < total else ""))
+        self.lab.setText("控制面板里的程序 · %d 个%s"
+                         % (total, "（显示 %d）" % visible if visible < total else ""))
 
     def _on_hide_sys(self, on: bool) -> None:
         self.cfg["hide_sys"] = bool(on)

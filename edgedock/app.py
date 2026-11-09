@@ -11,6 +11,7 @@ from PySide6.QtGui import (QColor, QIcon, QLinearGradient, QPainter,
                            QPainterPath, QPen, QPixmap)
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
+from . import apps as apps_mod
 from . import config as config_mod
 from . import theme as theme_mod
 from . import winapi
@@ -26,36 +27,52 @@ RUN_NAME = "EdgeDock"
 def launch_item(it: dict) -> bool:
     """打开抽屉里的一个条目，成功返回 True。
 
-    启动程序这活儿交给 **explorer**，不用 ShellExecuteW。实测下来
-    ShellExecute 对着 .exe 和 .lnk 都返回成功码（>32），进程却一个都不起来 ——
-    典型的「谎报成功」，光看返回值根本发现不了，用户看到的就是点了没反应。
-    explorer 走的是 shell 自己的激活链路，才真能把程序拉起来。
+    优先**直接创建进程**，而不是把路径丢给 explorer。explorer 那条路要经过
+    shell 的激活链路：应用已经开着时会被合流去激活旧窗口，碰上 DDE 卡住就
+    干脆什么都不发生 —— 用户看到的正是「点了没反应 / 过两秒才开」。
 
-    优先级：
-      1) **有 appid** -> explorer 打开 ``shell:AppsFolder\\<标识>``。
-         商店应用只认这条路，桌面上根本没有它的快捷方式。
-      2) 快捷方式还在 -> 交给 explorer 打开它。.lnk 上挂着启动参数、工作目录、
-         「以管理员身份运行」标记、应用标识，走它最保真；explorer 会照办提权。
-      3) 快捷方式没了，但记着真实目标 -> 交给 explorer 打开目标本身。
-      4) 条目里额外填了启动参数 -> 只能退回 ShellExecuteW，因为 explorer
-         没法把参数转交给目标程序。
+    顺序：
+      1) 记着真实目标（target） -> 直接起，最快
+      2) 快捷方式还在 -> 解析出目标再直接起，解析不出来才交给 shell
+      3) 有 appid -> 商店应用只认 shell:AppsFolder；传统程序的 appid
+         本身就是 exe 路径，直接起
     """
     appid = (it.get("appid") or "").strip()
     if appid:
+        if os.path.isabs(appid) and os.path.exists(appid):
+            return winapi.spawn(appid, it.get("args") or "",
+                                it.get("workdir") or "")
+        # 「所有应用」的标识只能经 shell 激活：要排队、已有实例还会被合流，
+        # 慢起来就是好几秒的「没反应」。控制面板名单里通常有同一个程序的
+        # 真实入口，按名字找一下，能找到就直接起。
+        hit = apps_mod.find_installed(it.get("name") or "")
+        if hit and hit.get("target") and os.path.exists(hit["target"]):
+            if winapi.spawn(hit["target"], hit.get("args") or "",
+                            hit.get("workdir") or "",
+                            bool(hit.get("runas"))):
+                return True
         return winapi.explorer_open(winapi.app_spec(appid))
 
     link = it.get("path") or ""
     target = it.get("target") or ""
     args = it.get("args") or ""
-    has_link = bool(link) and os.path.exists(link)
-    has_target = bool(target) and os.path.exists(target)
+    workdir = it.get("workdir") or ""
+    runas = bool(it.get("runas"))
 
-    if has_link:
-        return winapi.explorer_open(link)
-    if has_target:
-        if args and winapi.shell_execute(target, args, it.get("workdir", "")):
+    if target and os.path.exists(target):
+        if winapi.spawn(target, args, workdir, runas):
             return True
-        return winapi.explorer_open(target)
+        # 直接起不来（个别程序只认 shell 的激活链路）再退回 explorer
+        if winapi.explorer_open(target):
+            return True
+    if link and os.path.exists(link):
+        info = winapi.resolve_lnk(link)
+        tgt = info.get("target") or ""
+        if tgt and winapi.spawn(tgt, info.get("args") or args,
+                                info.get("workdir") or workdir,
+                                bool(info.get("runas")) or runas):
+            return True
+        return winapi.explorer_open(link)   # 解析不出来，让 shell 自己处理
     return False
 
 
@@ -196,6 +213,9 @@ class EdgeDock(QObject):
 
         if self._first_run:
             QTimer.singleShot(900, self._first_run_hint)
+        # 先把控制面板名单扫进缓存：第一次点带应用标识的图标时，
+        # 才不用现场扫一遍（那会让这一下变慢，正好又成了「点了没反应」）
+        QTimer.singleShot(1400, apps_mod.installed_pool)
 
     def _on_system_theme(self, *_args) -> None:
         """系统在深色/浅色之间切换了。只有选了「跟随系统」才需要动。

@@ -62,6 +62,7 @@ class Recorder:
         self.calls = []          # [(通道, 路径, 参数, 工作目录)]
         self.fail: set[str] = set()
         self.fail_channel = "*"  # 这些路径只在哪个通道上失败；"*" 表示两条都失败
+        self.last_runas = False
 
     def _log(self, channel, path, args="", workdir=""):
         self.calls.append((channel, path, args, workdir))
@@ -75,6 +76,11 @@ class Recorder:
 
     def shell(self, path, args="", workdir=""):
         return self._log("shell", path, args, workdir)
+
+    def spawn(self, path, args="", workdir="", runas=False):
+        """直接创建进程的通道（现在的主力）。"""
+        self.last_runas = runas
+        return self._log("spawn", path, args, workdir)
 
     @property
     def last(self):
@@ -183,8 +189,10 @@ def main() -> int:
     rec = Recorder()
     real_shell_execute = winapi.shell_execute
     real_explorer_open = winapi.explorer_open
+    real_spawn = winapi.spawn
     winapi.shell_execute = rec.shell
     winapi.explorer_open = rec.explorer
+    winapi.spawn = rec.spawn
 
     exe = sys.executable                      # 拿 Python 自己当「被启动的程序」
 
@@ -203,13 +211,13 @@ def main() -> int:
     check("launchable() 为真", cfg.launchable(it) is True)
     check("重复添加会被挡掉", cfg.add_item(lnk) is False)
 
-    # ---- 2. 快捷方式还在：交给 explorer 打开它 ----
-    print("\n[2] 快捷方式在 → explorer 打开它（这条通道才真起得来）")
+    # ---- 2. 快捷方式还在：直接起它的目标 ----
+    print("\n[2] 快捷方式在 → 直接起目标（不再绕 explorer 转发）")
     rec.clear()
     check("launch_item 成功", app_mod.launch_item(it) is True)
-    check("走的是 explorer 通道", rec.only("explorer"), repr(rec.calls))
-    check("打开的是快捷方式本身（参数/提权/应用标识都挂在它身上）",
-          rec.last and os.path.normcase(rec.last[1]) == os.path.normcase(lnk),
+    check("走的是直接启动通道", rec.only("spawn"), repr(rec.calls))
+    check("起的是快捷方式记住的目标",
+          rec.last and os.path.normcase(rec.last[1]) == os.path.normcase(exe),
           repr(rec.last))
     check("只试了一次", len(rec.calls) == 1, repr(rec.calls))
 
@@ -231,10 +239,10 @@ def main() -> int:
     check("启动体检后就记下了 runas", r_it["runas"] is True)
     rec.clear()
     check("这种条目确实能启动", app_mod.launch_item(r_it) is True)
-    check("走的是快捷方式本身（保住提权）",
-          rec.tried == [os.path.normcase(runas_lnk)], repr(rec.calls))
-    check("而且是 explorer 通道，UAC 提权标记才认",
-          rec.only("explorer"), repr(rec.calls))
+    check("起的是目标程序",
+          rec.tried == [os.path.normcase(exe)], repr(rec.calls))
+    check("带着 runas 标记（提权由它触发 UAC）",
+          rec.only("spawn") and rec.last_runas is True, repr(rec.calls))
 
     # ---- 3. 快捷方式被删、目标还在：按目标启动 ----
     print("\n[3] 快捷方式被删 → 按记住的目标启动（核心场景）")
@@ -249,22 +257,21 @@ def main() -> int:
     check("参数带过去了", rec.last[2] == "--probe 1", repr(rec.last))
     check("工作目录带过去了",
           os.path.normcase(rec.last[3]) == os.path.normcase(TMP), repr(rec.last))
-    check("填了参数才用 shell 通道（explorer 递不了参数）",
-          rec.only("shell"), repr(rec.calls))
+    check("直接启动也把参数带过去了", rec.only("spawn"), repr(rec.calls))
 
-    # 没填参数就走 explorer —— 实测 shell 通道对着这类程序是谎报成功的
+    # 没有参数同样走直接启动
     it["args"] = ""
     rec.clear()
-    check("没参数时改用 explorer 起目标", app_mod.launch_item(it) is True and
-          rec.only("explorer") and
+    check("没参数时照样直接起目标", app_mod.launch_item(it) is True and
+          rec.only("spawn") and
           os.path.normcase(rec.last[1]) == os.path.normcase(exe), repr(rec.calls))
 
-    # shell 通道失败（比如谎报成功之外的真失败）要能退回 explorer
+    # 直接启动失败时要能退回 explorer（个别程序只认 shell 激活链路）
     it["args"] = "--probe 2"
     rec.clear()
     rec.fail.add(os.path.normcase(exe))
-    rec.fail_channel = "shell"           # 只让 shell 通道失败
-    check("shell 通道起不来时退回 explorer", app_mod.launch_item(it) is True)
+    rec.fail_channel = "spawn"           # 只让直接启动失败
+    check("直接启动起不来时退回 explorer", app_mod.launch_item(it) is True)
     check("两条通道都试过", len(rec.calls) == 2, repr(rec.calls))
     check("最后一次是 explorer", rec.last[0] == "explorer", repr(rec.last))
     rec.fail.clear()
@@ -293,9 +300,10 @@ def main() -> int:
         check("重定位后能打开", cfg2.launchable(o) is True)
         rec.clear()
         check("重定位后真的启动得起来", app_mod.launch_item(o) is True)
-        check("走 explorer 打开找到的那个快捷方式",
-              rec.only("explorer") and
-              os.path.normcase(rec.last[1]) == os.path.normcase(o["path"]),
+        check("起的是重定位找到的入口（有目标就直接起）",
+              rec.only("spawn") and
+              os.path.normcase(rec.last[1]) == os.path.normcase(
+                  o.get("target") or o["path"]),
               repr(rec.calls))
     check("find_shortcut 对空名字返回 None",
           cfg_mod.find_shortcut("   ") is None)
@@ -433,9 +441,9 @@ def main() -> int:
         # 快捷方式还在时，explorer 打开它就行
         rec.clear()
         check("修完真的能启动", app_mod.launch_item(it4) is True)
-        check("快捷方式还在 → explorer 打开它",
-              rec.only("explorer") and
-              os.path.normcase(rec.last[1]) == os.path.normcase(broken),
+        check("补出的目标在 → 直接起目标",
+              rec.only("spawn") and
+              os.path.normcase(rec.last[1]) == os.path.normcase(it4["target"]),
               repr(rec.calls))
 
         # 关键一步：这个快捷方式被删掉，补出来的目标就是唯一的救命稻草
@@ -444,17 +452,21 @@ def main() -> int:
         rec.clear()
         check("靠补出来的目标照样打得开", app_mod.launch_item(it4) is True)
         check("起的是补出来的目标",
-              rec.only("explorer") and
+              rec.only("spawn") and
               os.path.normcase(rec.last[1]) == os.path.normcase(it4["target"]),
               repr(rec.calls))
 
-    # ---- 12. 应用目录：不依赖桌面的那种条目 ----
-    print("\n[12] 系统应用目录（appid 条目 —— 桌面上根本没有它）")
+    # ---- 12. 应用目录：控制面板「程序和功能」 ----
+    print("\n[12] 应用目录（控制面板名单）")
     pool = apps_mod.scan_apps()
-    check("扫得到应用", len(pool) > 0, "%d 个" % len(pool))
+    check("扫得到程序", len(pool) > 0, "%d 个" % len(pool))
     check("每一项都有名字", all(a["name"] for a in pool))
     check("每一项都能寻址（有 path 或 appid）",
           all(a.get("path") or a.get("appid") for a in pool))
+    check("每一项的文件入口都真实存在",
+          all(os.path.exists(a["path"]) for a in pool if a.get("path")))
+    check("来源标成控制面板",
+          all(a.get("source") == "installed" for a in pool))
     check("卸载程序被过滤掉了",
           not [a for a in pool if "卸载" in a["name"]
                or a["name"].lower().startswith("uninstall")])
@@ -462,38 +474,57 @@ def main() -> int:
     check("同名只留一个", len(names) == len(set(names)))
     check("按名字排好序", names == sorted(names))
 
-    store_app = next((a for a in pool if a.get("appid")), None)
-    check("候选里有只有 appid 的应用（商店应用）", bool(store_app), str(store_app))
-    if store_app:
-        cfg5 = new_cfg([])
-        check("add_app 成功", cfg5.add_app(store_app) is True)
-        a_it = cfg5.items[0]
-        check("条目记住了 appid", a_it["appid"] == store_app["appid"], a_it["appid"])
-        check("path 是空的（不依赖任何文件）", a_it["path"] == "", repr(a_it["path"]))
-        check("key 用的是 appid", cfg5.key(a_it) == store_app["appid"])
-        check("launchable 为真", cfg5.launchable(a_it) is True)
-        check("durable 为真（系统注册，与桌面无关）", cfg5.durable(a_it) is True)
-        check("spec_of 拼得出 shell 路径",
-              apps_mod.spec_of(a_it) == winapi.app_spec(store_app["appid"]),
-              apps_mod.spec_of(a_it))
-        check("重复添加会被挡掉", cfg5.add_app(store_app) is False)
+    # 12.1 控制面板里找不到的 appid 条目：仍然交给 shell
+    store_app = {"name": "计算器",
+                 "appid": "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App",
+                 "path": "", "source": "apps"}
+    real_find = apps_mod.find_installed
+    apps_mod.find_installed = lambda name: None      # 隔离：别真去翻控制面板
+    cfg5 = new_cfg([])
+    check("add_app 成功", cfg5.add_app(store_app) is True)
+    a_it = cfg5.items[0]
+    check("条目记住了 appid", a_it["appid"] == store_app["appid"], a_it["appid"])
+    check("path 是空的（不依赖任何文件）", a_it["path"] == "", repr(a_it["path"]))
+    check("key 用的是 appid", cfg5.key(a_it) == store_app["appid"])
+    check("launchable 为真", cfg5.launchable(a_it) is True)
+    check("durable 为真（系统注册，与桌面无关）", cfg5.durable(a_it) is True)
+    check("spec_of 拼得出 shell 路径",
+          apps_mod.spec_of(a_it) == winapi.app_spec(store_app["appid"]),
+          apps_mod.spec_of(a_it))
+    check("重复添加会被挡掉", cfg5.add_app(store_app) is False)
+    rec.clear()
+    check("launch_item 走得通", app_mod.launch_item(a_it) is True)
+    check("走 explorer 打开 shell:AppsFolder\\<标识>",
+          rec.only("explorer")
+          and rec.last[1] == winapi.app_spec(store_app["appid"]),
+          repr(rec.calls))
 
+    snapshot = dict(a_it)
+    check("repair 跳过 appid 条目", cfg5.repair() == 0)
+    check("条目一个字段都没被改", snapshot == a_it, repr(a_it))
+    check("relocate 不动它", cfg5.relocate(a_it) is False)
+    check("失败提示能拿到名字", bool(a_it["name"]), a_it["name"])
+    apps_mod.find_installed = real_find
+
+    # 12.2 名字能对上控制面板条目时改走直接启动 —— 这才是「不再点半天」的关键
+    real_pool = apps_mod.installed_pool()
+    if real_pool:
+        guess = next((a for a in real_pool if a.get("target")), real_pool[0])
+        hit = apps_mod.find_installed(guess["name"])
+        check("按名字能在控制面板名单里找到自己", bool(hit))
+        appid_it = {"appid": "Vendor.NotSure_12345!App", "path": "",
+                    "name": guess["name"], "args": "", "target": "",
+                    "workdir": "", "runas": False}
         rec.clear()
-        check("launch_item 走得通", app_mod.launch_item(a_it) is True)
-        check("走 explorer 打开 shell:AppsFolder\\<标识>",
-              rec.only("explorer")
-              and rec.last[1] == winapi.app_spec(store_app["appid"]),
+        check("有同名真实入口时走得通", app_mod.launch_item(appid_it) is True)
+        check("直接起真实入口，不绕 explorer",
+              rec.only("spawn")
+              and os.path.normcase(rec.last[1]) == os.path.normcase(hit["target"]),
               repr(rec.calls))
-
-        # appid 条目没有文件可修，体检不该去动它
-        snapshot = dict(a_it)
-        check("repair 跳过 appid 条目", cfg5.repair() == 0)
-        check("条目一个字段都没被改", snapshot == a_it, repr(a_it))
-        check("relocate 不动它", cfg5.relocate(a_it) is False)
-        check("失败提示能拿到名字", bool(a_it["name"]), a_it["name"])
 
     winapi.shell_execute = real_shell_execute
     winapi.explorer_open = real_explorer_open
+    winapi.spawn = real_spawn
     shutil.rmtree(TMP, ignore_errors=True)
     print("\n%s：共 %d 项，失败 %d 项"
           % ("全部通过 ✅" if not fails else "有失败项 ❌", total, len(fails)))

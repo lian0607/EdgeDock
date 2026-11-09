@@ -20,7 +20,7 @@ PERSONALIZE_KEY = (r"Software\Microsoft\Windows\CurrentVersion"
 
 DARK = {
     "name": "dark",
-    "dialog": "#17181C",
+    "dialog": "#0B0C0E",
     "panel_hi": QColor(38, 40, 47, 240),      # 面板渐变顶部
     "panel_lo": QColor(18, 19, 23, 234),      # 面板渐变底部
     "border": QColor(255, 255, 255, 26),
@@ -35,28 +35,33 @@ DARK = {
     "divider": QColor(255, 255, 255, 20),
     "scroll": QColor(255, 255, 255, 46),
     "immersive_dark": 1,
-    # 设置界面用色
-    "card": "rgba(255,255,255,12)",
-    "card_border": "rgba(255,255,255,22)",
-    "btn": "rgba(255,255,255,18)",
-    "btn_border": "rgba(255,255,255,26)",
-    "btn_hover": "rgba(255,255,255,34)",
-    "btn_press": "rgba(255,255,255,48)",
+    # 设置界面用色：终端 / CodeX 风 —— 近黑底、细边框、荧光绿强调
+    "card": "#111317",
+    "card_border": "#23262C",
+    "btn": "#14171B",
+    "btn_border": "#2B2F36",
+    "btn_hover": "#1B1F24",
+    "btn_press": "#22272D",
     "menu_sel": "rgba(255,122,45,62)",
     "menu_bg": "#1E2024",
-    "input_bg": "rgba(255,255,255,18)",
-    "input_border": "rgba(255,255,255,28)",
-    "list_sel": "rgba(255,122,45,58)",
-    "list_hover": "rgba(255,255,255,16)",
-    "track": "rgba(255,255,255,36)",
-    "ind_border": "rgba(255,255,255,72)",
-    "ind_bg": "rgba(255,255,255,13)",
-    "popup_bg": "#22242A",
+    "input_bg": "#0E1013",
+    "input_border": "#2A2E35",
+    "list_sel": "rgba(62,224,143,30)",
+    "list_hover": "#16191D",
+    "track": "#2A2E35",
+    "ind_border": "#3A3F47",
+    "ind_bg": "#0E1013",
+    "popup_bg": "#15181C",
+    # 设置界面自己的强调色。抽屉仍是琥珀橙 —— 它贴在壁纸上，暖色更显眼；
+    # 设置窗口是一块工作区，冷绿更符合终端的气质。
+    "s_accent": "#3EE08F",
+    "s_accent_soft": "#2FD07F",
+    "s_accent_text": "#06120B",
 }
 
 LIGHT = {
     "name": "light",
-    "dialog": "#F4F5F7",
+    "dialog": "#F7F8F9",
     # 半透明：能透出壁纸的层次，同时保持图标对比度
     "panel_hi": QColor(255, 255, 255, 202),
     "panel_lo": QColor(238, 240, 245, 184),
@@ -73,21 +78,24 @@ LIGHT = {
     "scroll": QColor(15, 18, 25, 60),
     "immersive_dark": 0,
     "card": "#FFFFFF",
-    "card_border": "rgba(15,18,25,20)",
+    "card_border": "#E4E6E9",
     "btn": "#FFFFFF",
-    "btn_border": "rgba(15,18,25,26)",
-    "btn_hover": "#F0F1F4",
-    "btn_press": "#E4E6EB",
+    "btn_border": "#D8DBDF",
+    "btn_hover": "#F2F4F5",
+    "btn_press": "#E8EBED",
     "menu_sel": "rgba(255,122,45,56)",
     "menu_bg": "#FFFFFF",
     "input_bg": "#FFFFFF",
-    "input_border": "rgba(15,18,25,26)",
-    "list_sel": "rgba(255,122,45,52)",
-    "list_hover": "#F0F1F4",
-    "track": "rgba(15,18,25,36)",
-    "ind_border": "rgba(15,18,25,72)",
+    "input_border": "#D8DBDF",
+    "list_sel": "rgba(15,157,88,26)",
+    "list_hover": "#F2F4F5",
+    "track": "#E1E4E8",
+    "ind_border": "#C4C9CF",
     "ind_bg": "#FFFFFF",
     "popup_bg": "#FFFFFF",
+    "s_accent": "#0F9D58",
+    "s_accent_soft": "#0B8A4B",
+    "s_accent_text": "#FFFFFF",
 }
 
 THEMES = {"dark": DARK, "light": LIGHT}
@@ -146,79 +154,87 @@ def menu_qss(t: dict) -> str:
          "dis": t["subtext"]}
 
 
+MONO_FONT = ('"Cascadia Mono", "JetBrains Mono", "Sarasa Mono SC", '
+             '"Consolas", "Microsoft YaHei UI"')
+
+
 def settings_qss(t: dict) -> str:
-    """设置窗口样式表。"""
+    """设置窗口样式表：终端 / CodeX 风。
+
+    方角、1px 细线、等宽字体、单一荧光绿强调 —— 不做圆角卡片和渐变那套，
+    看起来像一块工作区，而不是一个「设置面板」。
+    """
     return """
     QDialog { background: %(dialog)s; }
-    QWidget { color: %(text)s;
-              font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI";
-              font-size: 13px; }
-    QLabel#Title   { font-size: 16px; font-weight: 600; }
-    QLabel#Section { color: %(subtext)s; font-size: 11px; font-weight: 600;
-                     letter-spacing: 1px; }
-    QLabel#Hint    { color: %(subtext)s; font-size: 12px; }
+    QWidget { color: %(text)s; font-family: %(mono)s; font-size: 12px; }
+    QLabel#Title   { font-size: 16px; font-weight: 700; }
+    QLabel#Brand   { color: %(accent)s; font-size: 11px; font-weight: 700; }
+    QLabel#Section { color: %(subtext)s; font-size: 11px; font-weight: 600; }
+    QLabel#Step    { color: %(accent)s; font-size: 11px; font-weight: 700; }
+    QLabel#Hint    { color: %(subtext)s; font-size: 11px; }
     QFrame#Card    { background: %(card)s; border: 1px solid %(card_border)s;
-                     border-radius: 12px; }
+                     border-radius: 2px; }
     QFrame#FootLine { background: %(card_border)s; border: none; }
     QPushButton { background: %(btn)s; border: 1px solid %(btn_border)s;
-                  border-radius: 8px; padding: 6px 14px; }
-    QPushButton:hover   { background: %(btn_hover)s; }
+                  border-radius: 2px; padding: 5px 12px; }
+    QPushButton:hover   { background: %(btn_hover)s;
+                          border-color: %(accent_soft)s; }
     QPushButton:pressed { background: %(btn_press)s; }
-    QPushButton#Primary { background: %(accent)s; color: #FFFFFF; border: none;
-                          font-weight: 600; }
-    QPushButton#Primary:hover { background: %(accent_soft)s; }
+    QPushButton#Primary { background: %(accent)s; color: %(accent_text)s;
+                          border: 1px solid %(accent)s; font-weight: 700; }
+    QPushButton#Primary:hover { background: %(accent_soft)s;
+                                border-color: %(accent_soft)s; }
     /* 内边距别调大：左列「吸附到」一行要放下四个按钮，
        稍微超出一点布局就会去压缩间距，标签和按钮就会贴到一起。 */
-    QPushButton#Seg { padding: 6px 9px; }
-    QPushButton#Seg:checked { background: %(accent)s; color: #FFFFFF;
-                              border: 1px solid %(accent)s; font-weight: 600; }
+    QPushButton#Seg { padding: 5px 9px; }
+    QPushButton#Seg:checked { background: %(accent)s; color: %(accent_text)s;
+                              border: 1px solid %(accent)s; font-weight: 700; }
     QCheckBox { spacing: 8px; }
     /* 列表里的复选框必须自己画：一旦有 ::item 规则，Qt 就不再拿原生样式
-       画指示器，勾没勾上都画成同一个空方框 —— 用户看见的就是「点了没反应」。
-       所以跟 QCheckBox 合并成一条，勾上就是实心主题色块。 */
+       画指示器，勾没勾上都画成同一个空方框 —— 用户看见的就是「点了没反应」。 */
     QCheckBox::indicator, QListWidget::indicator {
-        width: 16px; height: 16px; border-radius: 5px;
+        width: 15px; height: 15px; border-radius: 2px;
         border: 1px solid %(ind_border)s; background: %(ind_bg)s; }
     QCheckBox::indicator:checked, QListWidget::indicator:checked {
         background: %(accent)s; border: 1px solid %(accent)s; }
     QListWidget::indicator:hover { border: 1px solid %(accent)s; }
     QListWidget { background: transparent; border: none; outline: none; }
-    QListWidget::item { padding: 6px; border-radius: 8px; }
-    QListWidget::item:selected { background: %(list_sel)s; }
+    QListWidget::item { padding: 5px 6px; border-left: 2px solid transparent; }
+    QListWidget::item:selected { background: %(list_sel)s;
+                                 border-left: 2px solid %(accent)s; }
     QListWidget::item:hover { background: %(list_hover)s; }
-    QSlider::groove:horizontal { height: 4px; border-radius: 2px;
-                                 background: %(track)s; }
-    QSlider::sub-page:horizontal { background: %(accent)s; border-radius: 2px; }
-    QSlider::handle:horizontal { width: 13px; height: 13px; margin: -6px 0;
-                                 border-radius: 7px; background: #FFFFFF;
-                                 border: 2px solid %(accent)s; }
+    QSlider::groove:horizontal { height: 3px; background: %(track)s; }
+    QSlider::sub-page:horizontal { background: %(accent)s; }
+    QSlider::handle:horizontal { width: 10px; height: 14px; margin: -6px 0;
+                                 border-radius: 1px; background: %(accent)s; }
     /* 输入框跟下拉框用同一套皮肤。不写这条的话 Qt 会退回 Windows 11
        原生样式 —— 底下拖一道蓝线，跟其余控件完全不是一家人。 */
     QLineEdit { background: %(input_bg)s; border: 1px solid %(input_border)s;
-                border-radius: 8px; padding: 6px 10px; }
+                border-radius: 2px; padding: 5px 9px; }
     QLineEdit:focus { border: 1px solid %(accent)s; }
     QComboBox { background: %(input_bg)s; border: 1px solid %(input_border)s;
-                border-radius: 8px; padding: 5px 10px; }
-    QComboBox::drop-down { border: none; width: 22px; }
+                border-radius: 2px; padding: 4px 9px; }
+    QComboBox::drop-down { border: none; width: 20px; }
     QComboBox QAbstractItemView { background: %(popup_bg)s; color: %(text)s;
                 border: 1px solid %(input_border)s; outline: none;
                 selection-background-color: %(accent)s;
-                selection-color: #FFFFFF; }
+                selection-color: %(accent_text)s; }
     QScrollArea { background: transparent; border: none; }
     QScrollArea > QWidget > QWidget { background: transparent; }
     QScrollArea > QWidget > QScrollBar { background: transparent; }
-    QScrollBar:vertical { background: transparent; width: 8px; margin: 0; }
-    QScrollBar::handle:vertical { background: %(scroll)s; border-radius: 4px;
-                                  min-height: 30px; }
+    QScrollBar:vertical { background: transparent; width: 6px; margin: 0; }
+    QScrollBar::handle:vertical { background: %(scroll)s; min-height: 28px; }
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
     QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical
         { background: transparent; }
     """ % {
         "dialog": t["dialog"], "text": t["text"], "subtext": t["subtext"],
+        "mono": MONO_FONT,
         "card": t["card"], "card_border": t["card_border"],
         "btn": t["btn"], "btn_border": t["btn_border"],
         "btn_hover": t["btn_hover"], "btn_press": t["btn_press"],
-        "accent": ACCENT, "accent_soft": ACCENT_SOFT,
+        "accent": t["s_accent"], "accent_soft": t["s_accent_soft"],
+        "accent_text": t["s_accent_text"],
         "ind_border": t["ind_border"], "ind_bg": t["ind_bg"],
         "list_sel": t["list_sel"], "list_hover": t["list_hover"],
         "track": t["track"], "input_bg": t["input_bg"],

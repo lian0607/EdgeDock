@@ -113,10 +113,10 @@ for theme in ("light", "dark"):
     # 现在勾上是一整块主题色，差异在 300 以上。阈值取 150 两头都稳。
     check("勾选前后画面明显不同（不能是同一个空框）", d > 150,
           "差异像素 %d（旧代码约 57）" % d)
-    check("勾上后出现主题色块", accent_hits(on, t["accent"]) > 40,
-          "主题色像素 %d（accent=%s）" % (accent_hits(on, t["accent"]), t["accent"]))
-    check("未勾选时没有主题色块", accent_hits(off, t["accent"]) < 10,
-          "主题色像素 %d" % accent_hits(off, t["accent"]))
+    check("勾上后出现主题色块", accent_hits(on, t["s_accent"]) > 40,
+          "主题色像素 %d（accent=%s）" % (accent_hits(on, t["s_accent"]), t["accent"]))
+    check("未勾选时没有主题色块", accent_hits(off, t["s_accent"]) < 10,
+          "主题色像素 %d" % accent_hits(off, t["s_accent"]))
 
 print("\n%s：共 %d 项，失败 %d 项" % (
     "全部通过 ✅" if FAIL == 0 else "有失败 ❌", PASS + FAIL, FAIL))
