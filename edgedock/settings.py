@@ -586,6 +586,11 @@ class AppPicker(QDialog):
         self._chosen = {os.path.normcase(cfg.key(i)) for i in cfg.items}
         self._chosen_names = {(i.get("name") or "").strip().lower()
                               for i in cfg.items if i.get("name")}
+        # 已经躺进抽屉的程序，它的真实目标也是同一个程序 —— 光比 path 不灵：
+        # 名单里给的可能是「开始」菜单那个 .lnk，抽屉里存的是 exe 本体
+        self._chosen_paths = {os.path.normcase(k)
+                              for i in cfg.items
+                              for k in (i.get("target"), i.get("path")) if k}
 
         v = QVBoxLayout(self)
         v.setContentsMargins(18, 16, 18, 16)
@@ -666,11 +671,20 @@ class AppPicker(QDialog):
         return os.path.normcase((app.get("appid") or app.get("path") or "").strip())
 
     def _is_chosen(self, app: dict) -> bool:
-        """这个候选应用在不在抽屉里。键对不上时按名字兜底 —— 应用标识是会
-        随进程注册/注销的（比如 DeepSeek Harness），抽屉里存的可能还是旧键。"""
+        """这个候选应用在不在抽屉里。
+
+        三重比对，从硬到软：应用标识 / 路径 → 真实目标 → 名字。
+        只比第一层是不够的 —— 名单里给的是「开始」菜单的 .lnk，抽屉里存的
+        往往是 exe 本体，键永远对不上，于是已经加过的程序显示成「没加」，
+        再勾一次就多出一条重复项（名字还略有出入）。
+        """
         if self._key_of(app) in self._chosen:
             return True
-        return app["name"].strip().lower() in self._chosen_names
+        for k in (app.get("target"), app.get("path")):
+            if k and os.path.normcase(k) in self._chosen_paths:
+                return True
+        name = (app.get("name") or "").strip().lower()
+        return any(apps_mod.same_name(name, n) for n in self._chosen_names)
 
     @staticmethod
     def _label_of(app: dict) -> str:
@@ -722,40 +736,62 @@ class AppPicker(QDialog):
                 app = self.pool[item.data(Qt.UserRole)]
                 picked.append(app)
                 keys.add(self._key_of(app))
-        # 这次的勾选**管不着**池外条目：应用标识随进程注册的应用（进程一退
-        # 就从「所有应用」里消失）、用户手动加的绿色软件……它们不在候选列表里，
-        # 没被勾上不代表用户不要了，原样保留 —— 之前这里会把它们静默删掉。
-        pool_keys = {self._key_of(a) for a in self.pool}
-        out = [it for it in self.cfg.items
-               if os.path.normcase(self.cfg.key(it)) not in pool_keys]
-        have = {os.path.normcase(self.cfg.key(it)) for it in out}
-        # 勾上的：老条目按原顺序跟上（用户可能调过序），新条目按列表顺序往后接
+
+        # 候选名单按「路径 / 真实目标」建索引，好把抽屉里的老条目认出来。
+        # 认不出对应候选的（手动拖进来的 .exe、只有应用标识的条目）属于池外，
+        # 不在候选列表里不等于用户不要了，原样保留 —— 之前这里会静默删掉。
+        twin_of: dict[str, dict] = {}
+        by_key: dict[str, dict] = {}
+        for app in self.pool:
+            by_key.setdefault(self._key_of(app), app)
+            for k in (app.get("target"), app.get("path")):
+                if k:
+                    twin_of.setdefault(os.path.normcase(k), app)
+
+        out: list[dict] = []
+        have: set[str] = set()
         for it in self.cfg.items:
-            k = os.path.normcase(self.cfg.key(it))
-            if k in keys and k not in have:
-                out.append(it)
-                have.add(k)
+            key = os.path.normcase(self.cfg.key(it))
+            twin = by_key.get(key)
+            if twin is None:
+                for k in (it.get("target"), it.get("path")):
+                    if k and os.path.normcase(k) in twin_of:
+                        twin = twin_of[os.path.normcase(k)]
+                        break
+            if twin is not None and self._key_of(twin) not in keys:
+                continue                       # 在候选里、被取消了勾选 → 移出抽屉
+            # **位置一寸不让**：老条目保持原来的先后，只有名字跟控制面板对齐。
+            # 之前把池外条目整体提到最前，用户调好的顺序每次确定都被打乱。
+            if twin is not None and twin["name"] != it.get("name"):
+                it["name"] = twin["name"]
+            if key in have:
+                continue
+            out.append(it)
+            have.add(key)
+        # 新勾上的按列表（也就是控制面板）的顺序接在后面
         for app in picked:
-            if self._key_of(app) not in have:
-                out.append(app)
-                have.add(self._key_of(app))
+            k = self._key_of(app)
+            if k not in have:
+                out.append(dict(app))
+                have.add(k)
         # 同名只留先来的 —— 名字兜底匹配可能让新旧两条重复入列
-        seen_names = set()
-        deduped = []
+        seen: set[str] = set()
+        uniq: list[dict] = []
         for it in out:
             low = (it.get("name") or "").strip().lower()
-            if low and low in seen_names:
+            if low and low in seen:
                 continue
             if low:
-                seen_names.add(low)
-            deduped.append(it)
+                seen.add(low)
+            uniq.append(it)
+        out = uniq
         # 从「非空」清成「空」多半是误触（比如全不选之后顺手点了确定），拦一下
-        if self.cfg.items and not deduped:
+        if self.cfg.items and not out:
             ret = QMessageBox.question(
                 self, "清空抽屉", "一个应用都没勾 —— 确定要清空抽屉吗？",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if ret != QMessageBox.Yes:
                 return
-        self.cfg.set_items(deduped)
+        self.cfg.set_items(out)
         self.cfg.save()
         self.accept()

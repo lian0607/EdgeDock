@@ -472,7 +472,19 @@ def main() -> int:
                or a["name"].lower().startswith("uninstall")])
     names = [a["name"].lower() for a in pool]
     check("同名只留一个", len(names) == len(set(names)))
-    check("按名字排好序", names == sorted(names))
+    # 排序要跟控制面板用同一把尺子（StrCmpLogicalW），不能用 Python 码点：
+    # 码点排序会把中文名字挤在最后按 Unicode 顺序乱成一团
+    import ctypes
+    import functools
+    shl = ctypes.windll.shlwapi.StrCmpLogicalW
+    shl.argtypes = (ctypes.c_wchar_p, ctypes.c_wchar_p)
+    expect = sorted([a["name"] for a in pool],
+                    key=functools.cmp_to_key(shl))
+    check("按控制面板的顺序排好序",
+          [a["name"] for a in pool] == expect)
+    cn = [a["name"] for a in pool if "\u4e00" <= a["name"][0] <= "\u9fff"]
+    check("中文名字也是按拼音排的（不是码点）",
+          cn == sorted(cn, key=functools.cmp_to_key(shl)) or len(cn) < 2)
 
     # 12.1 控制面板里找不到的 appid 条目：仍然交给 shell
     store_app = {"name": "计算器",
@@ -521,6 +533,37 @@ def main() -> int:
               rec.only("spawn")
               and os.path.normcase(rec.last[1]) == os.path.normcase(hit["target"]),
               repr(rec.calls))
+
+    # 12.3 名字比对必须分得清「同一个程序」和「名字里碰巧有同一个词」
+    check("同一个程序（WorkBuddy / WorkBuddy 5.9.3）",
+          apps_mod.same_name("WorkBuddy", "WorkBuddy 5.9.3") is True)
+    check("带年份的也是同一个（Adobe Photoshop / 2023）",
+          apps_mod.same_name("Adobe Photoshop", "Adobe Photoshop 2023") is True)
+    check("DevEco Studio 不能认成 LM Studio",
+          apps_mod.same_name("DevEco Studio", "LM Studio 0.4.28+2") is False)
+    check("LM Studio 不能认成 Visual Studio Code",
+          apps_mod.same_name("LM Studio 0.4.28+2",
+                             "Microsoft Visual Studio Code (User)") is False)
+    check("QQ 不能认成 QQ音乐",
+          apps_mod.same_name("QQ", "QQ音乐") is False)
+    check("微信 不能认成 微信输入法",
+          apps_mod.same_name("微信", "微信输入法") is False)
+
+    # 12.4 名字跟着控制面板走：程序升级后旧版本号要能自动纠正
+    by_path = apps_mod.installed_by_path()
+    if by_path:
+        target = next((k for k in by_path if k.endswith(".exe")), "")
+        cfg6 = new_cfg([{"path": target, "name": "旧名字 1.0"}])
+        n6 = cfg6.sync_names()
+        check("按程序本体把旧版本号纠正成控制面板的写法",
+              n6 == 1 and cfg6.items[0]["name"] == by_path[target]["name"],
+              "%d / %s" % (n6, cfg6.items[0]["name"]))
+        cfg7 = new_cfg([{"path": target, "name": by_path[target]["name"]}])
+        check("名字已经一致时 sync_names 不动它", cfg7.sync_names() == 0)
+        cfg8 = new_cfg([{"path": os.path.join(TMP, "不存在.exe"),
+                         "name": "手工命名"}])
+        check("对不上控制面板的条目不动名字",
+              cfg8.sync_names() == 0 and cfg8.items[0]["name"] == "手工命名")
 
     winapi.shell_execute = real_shell_execute
     winapi.explorer_open = real_explorer_open

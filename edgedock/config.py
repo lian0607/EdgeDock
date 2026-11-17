@@ -81,6 +81,8 @@ def _norm_item(raw) -> dict | None:
         "workdir": (raw.get("workdir") or "").strip(),
         # 勾了「以管理员身份运行」的快捷方式得走它自己，直接起 exe 会丢提权
         "runas": bool(raw.get("runas")),
+        # 从哪儿来的（控制面板 / 手动拖进来），设置里的悬停提示要说
+        "source": (raw.get("source") or "").strip(),
     }
 
 
@@ -182,10 +184,12 @@ class Config:
                              "runas": False})
 
     def add_app(self, app: dict) -> bool:
-        """把「所有应用」里的一个应用加进抽屉。
+        """把控制面板名单里的一个应用加进抽屉。
 
         app 来自 ``apps.scan_apps()``，形如
-        ``{"name","path","appid","source"}``；path / appid 有一个就行。
+        ``{"name","path","appid","target","workdir","args","runas","source"}``；
+        path / appid 有一个就行。顺带把真实目标、参数、工作目录一并收下 ——
+        光记个 .lnk 的话，下次启动还得再解析一遍，快捷方式被删就抓瞎。
         """
         name = (app.get("name") or "").strip()
         path = (app.get("path") or "").strip()
@@ -193,8 +197,11 @@ class Config:
         if not name or not (path or appid):
             return False
         return self._append({"path": path, "appid": appid, "name": name,
-                             "args": "", "target": "", "workdir": "",
-                             "runas": False})
+                             "args": (app.get("args") or "").strip(),
+                             "target": (app.get("target") or "").strip(),
+                             "workdir": (app.get("workdir") or "").strip(),
+                             "runas": bool(app.get("runas")),
+                             "source": (app.get("source") or "").strip()})
 
     def remove_item(self, key: str) -> None:
         idx = self._find(key)
@@ -330,6 +337,36 @@ class Config:
             if not self.durable(it):
                 self.relocate(it)
             if before != tuple(it.get(k) for k in keys):
+                changed += 1
+        return changed
+
+    def sync_names(self) -> int:
+        """把显示名对齐控制面板当前的写法，返回改动的条数。
+
+        名字是加进抽屉那一刻抄下来的。程序升级之后控制面板里那一行会跟着变
+        （``DataGrip 2026.2.3`` → ``DataGrip 2026.3``），抽屉里却还是旧版本号，
+        看着就像「跟控制面板里不是同一个东西」。这里按**程序本体**（exe 路径）
+        反查现在的名字，让两边始终一致。
+        """
+        by_path = apps.installed_by_path()
+        pool = apps.installed_pool()
+        changed = 0
+        for it in self.items:
+            live = None
+            for k in (it.get("target"), it.get("path")):
+                if k:
+                    live = by_path.get(os.path.normcase(k))
+                    if live is not None:
+                        break
+            if live is None:
+                # 认不出路径（只有应用标识的条目、手动拖进来的绿色软件）才退回
+                # 按名字找，而且要求**唯一命中** —— 有歧义宁可不动
+                cands = [a for a in pool
+                         if apps.same_name(it.get("name") or "", a["name"])]
+                live = cands[0] if len(cands) == 1 else None
+            name = (live or {}).get("name") or ""
+            if name and name != it.get("name"):
+                it["name"] = name
                 changed += 1
         return changed
 

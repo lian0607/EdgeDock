@@ -181,6 +181,9 @@ class EdgeDock(QObject):
         # 就修好，这样点图标一定能打开，而不是静默地什么都不发生。
         if self.cfg.repair():
             self.cfg.save()
+        # 名字和版本号跟着控制面板走：程序升级过之后，抽屉里不该还挂着旧版本号
+        if self.cfg.sync_names():
+            self.cfg.save()
 
         self.drawer = DrawerWindow(self.cfg, self.store)
         self.drawer.launchRequested.connect(self._launch)
@@ -213,8 +216,7 @@ class EdgeDock(QObject):
 
         if self._first_run:
             QTimer.singleShot(900, self._first_run_hint)
-        # 先把控制面板名单扫进缓存：第一次点带应用标识的图标时，
-        # 才不用现场扫一遍（那会让这一下变慢，正好又成了「点了没反应」）
+        # 名单在启动时已经扫过一遍（对齐名字要用），这里只是把计时器当兜底
         QTimer.singleShot(1400, apps_mod.installed_pool)
 
     def _on_system_theme(self, *_args) -> None:

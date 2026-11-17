@@ -164,6 +164,54 @@ QTest.mouseClick(dlg4.list.viewport(), Qt.LeftButton, Qt.NoModifier,
 check("再点一脚切回来", item.checkState() == before)
 dlg4.close()
 
+print("== 8. 已加入的程序：路径对得上就算「已勾选」 ==")
+# 名单里给的是「开始」菜单那个 .lnk，抽屉里存的往往是 exe 本体。
+# 只比 path 会让加过的程序显示成没加过，再勾一次就多出一条重复项。
+LNK_APP = next((a for a in POOL
+                if (a.get("path") or "").lower().endswith(".lnk")
+                and a.get("target")), None)
+if LNK_APP:
+    cfg8 = fresh_config([{"path": LNK_APP["target"], "name": "老名字 1.0"}])
+    dlg8 = picker(cfg8)
+    item8 = row_of(dlg8, LNK_APP["name"])
+    check("按真实目标认出已加入", item8 is not None
+          and item8.checkState() == Qt.Checked,
+          "" if item8 is None else str(item8.checkState()))
+else:
+    print("  SKIP  这台机器上没有「.lnk 入口」的样本")
+
+print("== 9. 确定时抽屉顺序原样不动 ==")
+# 之前把「池外条目」整体提到最前、池内条目挪到后面，用户排好的顺序每次确定都被打乱
+TWO = [a for a in POOL if not apps_mod.is_system_tool(a)][:3]
+if len(TWO) >= 2:
+    later = TWO[2] if len(TWO) > 2 else None
+    before_items = [{"path": TWO[0]["path"], "name": TWO[0]["name"]},
+                    dict(GREEN),
+                    {"path": TWO[1]["path"], "name": TWO[1]["name"]}]
+    if later:
+        before_items.insert(1, {"path": later["path"], "name": later["name"]})
+    cfg9 = fresh_config(before_items)
+    dlg9 = picker(cfg9)
+    dlg9._accept()                      # 什么都不改，直接确定
+    after9 = [it["name"] for it in cfg_mod.Config().items]
+    check("顺序与确定前完全一致",
+          after9 == [i["name"] for i in before_items],
+          "%s -> %s" % ([i["name"] for i in before_items], after9))
+
+print("== 10. 取消勾选 = 移出抽屉，其余位置不动 ==")
+cfg10 = fresh_config([
+    {"path": TWO[0]["path"], "name": TWO[0]["name"]},
+    dict(GREEN),
+    {"path": TWO[1]["path"], "name": TWO[1]["name"]},
+])
+dlg10 = picker(cfg10)
+row_of(dlg10, TWO[0]["name"]).setCheckState(Qt.Unchecked)
+dlg10._accept()
+after10 = [it["name"] for it in cfg_mod.Config().items]
+check("取消勾选的那条被移出", TWO[0]["name"] not in after10, str(after10))
+check("其余条目顺序不变",
+      after10 == [GREEN["name"], TWO[1]["name"]], str(after10))
+
 print("\n%s：共 %d 项，失败 %d 项" % (
     "全部通过 ✅" if FAIL == 0 else "有失败 ❌", PASS + FAIL, FAIL))
 sys.exit(1 if FAIL else 0)

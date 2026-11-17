@@ -16,6 +16,8 @@
 """
 from __future__ import annotations
 
+import ctypes
+import functools
 import os
 import re
 import winreg
@@ -77,6 +79,33 @@ _NAME_NOISE = {
 
 # 版本号之类的显示名后缀，比对时先去掉
 _VERSION_TAIL = re.compile(r"\s+v?\d+(\.\d+)+\S*\s*$", re.I)
+
+
+# ----------------------------------------------------------------------
+#  排序：跟控制面板用同一把尺子
+# ----------------------------------------------------------------------
+# 控制面板（资源管理器也是）排名字用的是 Shell 的 StrCmpLogicalW：数字按数值比
+# （"v9" 在 "v10" 前面），标点当空气，中文按拼音 —— 跟 Python 的码点排序完全是
+# 两回事。拿码点排，中文名字会挤在最后按 Unicode 顺序乱成一团，用户看到的就是
+# 「列表乱序」。
+try:
+    _cmp_logical = ctypes.windll.shlwapi.StrCmpLogicalW
+    _cmp_logical.argtypes = (ctypes.c_wchar_p, ctypes.c_wchar_p)
+    _cmp_logical.restype = ctypes.c_int
+except Exception:                                   # 非 Windows / 老系统
+    _cmp_logical = None
+
+
+def _plain_cmp(a: str, b: str) -> int:
+    a, b = (a or "").casefold(), (b or "").casefold()
+    return (a > b) - (a < b)
+
+
+def sort_by_name(rows: list[dict]) -> list[dict]:
+    """按控制面板的顺序排，就地改列表也返回它，方便链式用。"""
+    cmp = _cmp_logical or _plain_cmp
+    rows.sort(key=functools.cmp_to_key(lambda x, y: cmp(x["name"], y["name"])))
+    return rows
 
 
 def walk(root: str, exts: tuple) -> list[str]:
@@ -347,37 +376,76 @@ def scan_installed() -> list[dict]:
         if entry:
             seen.add(key)
             out.append(entry)
-    out.sort(key=lambda a: a["name"].casefold())
-    return out
+    return sort_by_name(out)
 
 
 # ----------------------------------------------------------------------
-#  按名字回落到控制面板入口
+#  按名字 / 按路径回落到控制面板入口
 # ----------------------------------------------------------------------
 _INSTALLED: list[dict] | None = None
+_BY_PATH: dict[str, dict] | None = None
 
 
 def installed_pool(refresh: bool = False) -> list[dict]:
     """缓存一份控制面板名单。扫一次约 150ms，点图标时不该每次都付这个钱。"""
-    global _INSTALLED
+    global _INSTALLED, _BY_PATH
     if refresh or _INSTALLED is None:
         _INSTALLED = scan_installed()
+        _BY_PATH = None
     return _INSTALLED
 
 
-def _same_app(a: str, b: str) -> bool:
-    """两个显示名是不是同一个程序（"WorkBuddy" 对 "WorkBuddy 5.9.3"）。"""
+def installed_by_path() -> dict[str, dict]:
+    """「路径 / 真实目标」-> 控制面板条目。
+
+    名字要跟着控制面板走（程序升级后版本号会变），比对名字不牢靠，
+    比对**程序本体**才是一一对应的。
+    """
+    global _BY_PATH
+    if _BY_PATH is None:
+        idx: dict[str, dict] = {}
+        for app in installed_pool():
+            for k in (app.get("target"), app.get("path")):
+                if k:
+                    idx.setdefault(os.path.normcase(k), app)
+        _BY_PATH = idx
+    return _BY_PATH
+
+
+def _app_core(name: str) -> set[str]:
+    """名字的「核心词」：去掉版本尾巴、括号、公司名之后还剩什么。
+
+    只是拿来做同一性判断的，不用来显示。
+    """
+    low = _VERSION_TAIL.sub("", (name or "").casefold())
+    low = re.sub(r"\(.*?\)", " ", low)
+    return {w for w in re.findall(r"[a-z0-9]+|[\u4e00-\u9fff]+", low)
+            if not w.isdigit() and w not in _NAME_NOISE and len(w) >= 3}
+
+
+def same_name(a: str, b: str) -> bool:
+    """两个显示名是不是同一个程序（"WorkBuddy" 对 "WorkBuddy 5.9.3"）。
+
+    判得**严**一点很有必要：文件头里按包含关系松着比，"DevEco Studio" 会认成
+    "LM Studio"，"LM Studio" 又会认成 "Visual Studio Code" —— 点 A 起 B。
+    """
     a, b = (a or "").strip().casefold(), (b or "").strip().casefold()
     if not a or not b:
         return False
     if a == b:
         return True
-    short, long_ = (a, b) if len(a) <= len(b) else (b, a)
-    # 太短的名字做包含匹配会乱套（"QQ" 会命中 "QQ音乐"）
-    if len(short) >= 4 and short in long_:
+    if _VERSION_TAIL.sub("", a) == _VERSION_TAIL.sub("", b):
         return True
-    ta, tb = set(_name_tokens(a)), set(_name_tokens(b))
-    return bool(ta) and bool(tb) and (ta <= tb or tb <= ta)
+    ca, cb = _app_core(a), _app_core(b)
+    if not ca or not cb:
+        # 纯中文名拆不出有效词，退回「前缀 + 够长」的保守判断
+        short, long_ = (a, b) if len(a) <= len(b) else (b, a)
+        return len(short) >= 4 and long_.startswith(short)
+    if ca == cb:
+        return True
+    # 单靠一个词能配上半个机器（"Studio"、"Manager"），至少得对上两个词
+    short, long_ = (ca, cb) if len(ca) <= len(cb) else (cb, ca)
+    return len(short) >= 2 and short <= long_
 
 
 def find_installed(name: str) -> dict | None:
@@ -386,7 +454,7 @@ def find_installed(name: str) -> dict | None:
         return None
     best, best_score = None, -1
     for app in installed_pool():
-        if not _same_app(name, app["name"]):
+        if not same_name(name, app["name"]):
             continue
         score = len(app["name"])
         if app.get("target"):
@@ -434,8 +502,7 @@ def scan_shell_apps() -> list[dict]:
             stem = os.path.splitext(os.path.basename(path))[0]
             if not _skip(stem):
                 add(stem, path=path, source="desktop")
-    out.sort(key=lambda a: a["name"].lower())
-    return out
+    return sort_by_name(out)
 
 
 def scan_apps() -> list[dict]:
