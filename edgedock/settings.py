@@ -176,13 +176,7 @@ class SettingsDialog(QDialog):
         # 左列比右列短一大截，空着难看；顺手把「这是本地程序、不联网」说清楚
         cv = self._card(lay_l, "关于")
         cv.addWidget(self._hint("本地运行 · 不联网 · 配置即改即生效"))
-        row = QHBoxLayout()
-        row.setSpacing(8)
-        home = QPushButton("项目主页")
-        home.clicked.connect(self._open_home)
-        row.addWidget(home)
-        row.addStretch(1)
-        cv.addLayout(row)
+        self._btn_row(cv, (("项目主页", self._open_home),))
         lay_l.addStretch(1)
 
         # ---- 右列 · 抽屉里的应用 ----
@@ -196,27 +190,12 @@ class SettingsDialog(QDialog):
         cv.addWidget(self.list)
 
         # 六个按钮挤一行在这个列宽下放不下，拆成「增删 / 排序」两行
-        bar1 = QHBoxLayout()
-        bar1.setSpacing(8)
-        for text, fn in (("控制面板…", self._pick_apps),
-                         ("添加文件…", self.add_files)):
-            b = QPushButton(text)
-            b.clicked.connect(fn)
-            bar1.addWidget(b)
-        bar1.addStretch(1)
-        cv.addLayout(bar1)
-
-        bar2 = QHBoxLayout()
-        bar2.setSpacing(8)
-        for text, fn in (("上移", lambda: self._move(-1)),
-                         ("下移", lambda: self._move(1)),
-                         ("移除", self._remove_selected),
-                         ("清空", self._clear)):
-            b = QPushButton(text)
-            b.clicked.connect(fn)
-            bar2.addWidget(b)
-        bar2.addStretch(1)
-        cv.addLayout(bar2)
+        self._btn_row(cv, (("控制面板…", self._pick_apps),
+                           ("添加文件…", self.add_files)))
+        self._btn_row(cv, (("上移", lambda: self._move(-1)),
+                           ("下移", lambda: self._move(1)),
+                           ("移除", self._remove_selected),
+                           ("清空", self._clear)))
 
         hint = QLabel("提示：.lnk / .exe 可直接拖进列表添加。\n"
                       "列表项可拖动排序，抽屉里也能按住图标拖。")
@@ -228,23 +207,10 @@ class SettingsDialog(QDialog):
         # ---- 右列 · 启动 ----
         cv = self._card(lay_r, "启动")
         cv.addWidget(self._check("开机自动启动", "autostart"))
-        row = QHBoxLayout()
-        row.setSpacing(8)
-        btn_dir = QPushButton("打开程序目录")
-        btn_dir.clicked.connect(self._open_root)
-        btn_cfg = QPushButton("编辑配置文件")
-        btn_cfg.clicked.connect(self._open_config)
-        row.addWidget(btn_dir)
-        row.addWidget(btn_cfg)
-        row.addStretch(1)
-        cv.addLayout(row)
-        row2 = QHBoxLayout()
-        row2.setSpacing(8)
-        self.btn_shortcut = QPushButton("添加桌面图标")
-        self.btn_shortcut.clicked.connect(self._add_desktop_icon)
-        row2.addWidget(self.btn_shortcut)
-        row2.addStretch(1)
-        cv.addLayout(row2)
+        self._btn_row(cv, (("打开程序目录", self._open_root),
+                           ("编辑配置文件", self._open_config)))
+        self.btn_shortcut = self._btn_row(
+            cv, (("添加桌面图标", self._add_desktop_icon),))[0]
         lay_r.addStretch(1)
 
         # 页脚：一条极淡的分隔线，让「完成」不至于孤零零地飘在滚动区下面
@@ -302,6 +268,24 @@ class SettingsDialog(QDialog):
         lab.setObjectName("Hint")
         lab.setWordWrap(True)
         return lab
+
+    @staticmethod
+    def _btn_row(parent, pairs) -> list:
+        """往卡片里加一行按钮：``((文字, 回调), …)``，返回加好的按钮。
+
+        增删、排序、启动、关于四处都是这个形状，抽出来免得写四份。
+        """
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        out = []
+        for text, fn in pairs:
+            b = QPushButton(text)
+            b.clicked.connect(fn)
+            row.addWidget(b)
+            out.append(b)
+        row.addStretch(1)
+        parent.addLayout(row)
+        return out
 
     def _label(self, text: str, width: int = LABEL_W) -> QLabel:
         lab = QLabel(text)
@@ -654,13 +638,13 @@ class AppPicker(QDialog):
         store.ready.connect(self._on_icon_ready)
         # 开场先过一遍过滤：系统工具默认要藏起来，标题里的计数也靠它写
         self._apply_filter()
-        self._specs = [apps_mod.spec_of(it) for it in self.pool]
         # 先补首屏看得见的那些，剩下的等窗口出来了再补 —— 一百多个一起提
-        # 会让第一次打开明显发木
-        store.warm(self._specs[:48])
+        # 会让第一次打开明显发木。_by_spec 的键就是去重后的寻址串，直接拿来用
+        specs = list(self._by_spec)
+        store.warm(specs[:48])
         later = QTimer(self)
         later.setSingleShot(True)
-        later.timeout.connect(lambda: store.warm(self._specs))
+        later.timeout.connect(lambda: store.warm(specs))
         later.start(900)
 
         apply_immersive(self, self.t)
@@ -728,46 +712,54 @@ class AppPicker(QDialog):
             if not item.isHidden():
                 item.setCheckState(state)
 
-    def _accept(self) -> None:
-        picked, keys = [], set()
-        for i in range(self.list.count()):
-            item = self.list.item(i)
-            if item.checkState() == Qt.Checked:
-                app = self.pool[item.data(Qt.UserRole)]
-                picked.append(app)
-                keys.add(self._key_of(app))
+    def _twin(self, it: dict, by_key: dict, by_path: dict) -> dict | None:
+        """这个抽屉条目在候选名单里对应哪一条；认不出（池外条目）返回 None。
 
-        # 候选名单按「路径 / 真实目标」建索引，好把抽屉里的老条目认出来。
-        # 认不出对应候选的（手动拖进来的 .exe、只有应用标识的条目）属于池外，
+        三层比对，从硬到软：标识 → 真实目标 / 路径 → 名字。最后一层是给老配
+        置留的：那时存的是应用标识、根本不是文件路径，前两层永远对不上，于是
+        取消勾选看起来毫无作用。名字要求**唯一命中**，有歧义宁可不动。
+        """
+        twin = by_key.get(os.path.normcase(self.cfg.key(it)))
+        if twin is not None:
+            return twin
+        for k in (it.get("target"), it.get("path")):
+            if k and os.path.normcase(k) in by_path:
+                return by_path[os.path.normcase(k)]
+        name = (it.get("name") or "").strip()
+        hits = [a for a in self.pool if name and apps_mod.same_name(name, a["name"])]
+        return hits[0] if len(hits) == 1 else None
+
+    def _accept(self) -> None:
+        picked = [self.pool[self.list.item(i).data(Qt.UserRole)]
+                  for i in range(self.list.count())
+                  if self.list.item(i).checkState() == Qt.Checked]
+        keys = {self._key_of(a) for a in picked}
+
+        # 候选名单按「标识」「路径 / 真实目标」建两张索引，好把抽屉里的老条目
+        # 认出来。认不出对应候选的（手动拖进来的 .exe、绿色软件）属于池外，
         # 不在候选列表里不等于用户不要了，原样保留 —— 之前这里会静默删掉。
-        twin_of: dict[str, dict] = {}
         by_key: dict[str, dict] = {}
+        by_path: dict[str, dict] = {}
         for app in self.pool:
             by_key.setdefault(self._key_of(app), app)
             for k in (app.get("target"), app.get("path")):
                 if k:
-                    twin_of.setdefault(os.path.normcase(k), app)
+                    by_path.setdefault(os.path.normcase(k), app)
 
         out: list[dict] = []
         have: set[str] = set()
         for it in self.cfg.items:
-            key = os.path.normcase(self.cfg.key(it))
-            twin = by_key.get(key)
-            if twin is None:
-                for k in (it.get("target"), it.get("path")):
-                    if k and os.path.normcase(k) in twin_of:
-                        twin = twin_of[os.path.normcase(k)]
-                        break
+            twin = self._twin(it, by_key, by_path)
             if twin is not None and self._key_of(twin) not in keys:
                 continue                       # 在候选里、被取消了勾选 → 移出抽屉
             # **位置一寸不让**：老条目保持原来的先后，只有名字跟控制面板对齐。
             # 之前把池外条目整体提到最前，用户调好的顺序每次确定都被打乱。
             if twin is not None and twin["name"] != it.get("name"):
                 it["name"] = twin["name"]
-            if key in have:
-                continue
-            out.append(it)
-            have.add(key)
+            key = os.path.normcase(self.cfg.key(it))
+            if key not in have:
+                out.append(it)
+                have.add(key)
         # 新勾上的按列表（也就是控制面板）的顺序接在后面
         for app in picked:
             k = self._key_of(app)
@@ -781,8 +773,7 @@ class AppPicker(QDialog):
             low = (it.get("name") or "").strip().lower()
             if low and low in seen:
                 continue
-            if low:
-                seen.add(low)
+            seen.add(low)
             uniq.append(it)
         out = uniq
         # 从「非空」清成「空」多半是误触（比如全不选之后顺手点了确定），拦一下

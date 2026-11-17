@@ -243,20 +243,17 @@ def _dir_of_command(cmd: str) -> str:
     return "" if os.path.normcase(folder).endswith("\\system32") else folder
 
 
-def _name_tokens(name: str) -> list[str]:
-    """把显示名拆成能跟 exe 文件名对上的小词。
+def _app_core(name: str) -> set[str]:
+    """显示名里真正有区分度的词。
 
-    显示名里基本都是版本号、位数、公司名这些噪声，真正有区分度的是
-    ``Photoshop`` / ``datagrip`` 这种词。
+    版本号、位数、"Microsoft" / "Server" 这类公司名和通用词全去掉，剩下
+    ``photoshop`` / ``datagrip`` / ``微信`` 这种。两个用途：跟 exe 文件名比对
+    （找主程序），以及判断两个显示名是不是同一个程序。
     """
-    low = _VERSION_TAIL.sub("", name or "").casefold()
+    low = _VERSION_TAIL.sub("", (name or "").casefold())
     low = re.sub(r"\(.*?\)", " ", low)
-    out = []
-    for word in re.findall(r"[a-z0-9]+", low):
-        if len(word) < 3 or word.isdigit() or word in _NAME_NOISE:
-            continue
-        out.append(word)
-    return out
+    return {w for w in re.findall(r"[a-z0-9]+|[\u4e00-\u9fff]+", low)
+            if len(w) >= 3 and not w.isdigit() and w not in _NAME_NOISE}
 
 
 def _exe_files(folder: str, depth: int) -> list[str]:
@@ -291,7 +288,7 @@ def _pick_exe(folder: str, name: str) -> str:
     folder = _safe_folder(folder)
     if not folder:
         return ""
-    tokens = _name_tokens(name)
+    tokens = _app_core(name)
     best, best_score = "", -99
     for depth in (2, 3):
         for path in _exe_files(folder, depth):
@@ -410,17 +407,6 @@ def installed_by_path() -> dict[str, dict]:
                     idx.setdefault(os.path.normcase(k), app)
         _BY_PATH = idx
     return _BY_PATH
-
-
-def _app_core(name: str) -> set[str]:
-    """名字的「核心词」：去掉版本尾巴、括号、公司名之后还剩什么。
-
-    只是拿来做同一性判断的，不用来显示。
-    """
-    low = _VERSION_TAIL.sub("", (name or "").casefold())
-    low = re.sub(r"\(.*?\)", " ", low)
-    return {w for w in re.findall(r"[a-z0-9]+|[\u4e00-\u9fff]+", low)
-            if not w.isdigit() and w not in _NAME_NOISE and len(w) >= 3}
 
 
 def same_name(a: str, b: str) -> bool:

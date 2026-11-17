@@ -166,8 +166,9 @@ class Config:
         return True
 
     def _append(self, it: dict) -> bool:
-        """查重 → 记目标 → 入列，两个 add 的公共尾巴。"""
-        if self._find(self.key(it)) >= 0:
+        """规整 → 查重 → 记目标 → 入列，两个 add 的公共尾巴。"""
+        it = _norm_item(it)
+        if it is None or self._find(self.key(it)) >= 0:
             return False
         self._remember_link(it)
         self.items.append(it)
@@ -179,29 +180,18 @@ class Config:
         # 拖进来的快捷方式/程序用文件名（去扩展名）当显示名，
         # 否则设置界面里这一行会是空白的。
         stem = os.path.splitext(os.path.basename(path))[0]
-        return self._append({"path": path, "appid": "", "name": name or stem,
-                             "args": "", "target": "", "workdir": "",
-                             "runas": False})
+        return self._append({"path": path, "name": name or stem})
 
     def add_app(self, app: dict) -> bool:
         """把控制面板名单里的一个应用加进抽屉。
 
-        app 来自 ``apps.scan_apps()``，形如
-        ``{"name","path","appid","target","workdir","args","runas","source"}``；
-        path / appid 有一个就行。顺带把真实目标、参数、工作目录一并收下 ——
-        光记个 .lnk 的话，下次启动还得再解析一遍，快捷方式被删就抓瞎。
+        app 来自 ``apps.scan_apps()``，path / appid 有一个就行。顺带把真实
+        目标、参数、工作目录一并收下 —— 光记个 .lnk 的话，下次启动还得再解析
+        一遍，快捷方式被删就抓瞎。
         """
-        name = (app.get("name") or "").strip()
-        path = (app.get("path") or "").strip()
-        appid = (app.get("appid") or "").strip()
-        if not name or not (path or appid):
+        if not (app.get("name") or "").strip():
             return False
-        return self._append({"path": path, "appid": appid, "name": name,
-                             "args": (app.get("args") or "").strip(),
-                             "target": (app.get("target") or "").strip(),
-                             "workdir": (app.get("workdir") or "").strip(),
-                             "runas": bool(app.get("runas")),
-                             "source": (app.get("source") or "").strip()})
+        return self._append(app)
 
     def remove_item(self, key: str) -> None:
         idx = self._find(key)

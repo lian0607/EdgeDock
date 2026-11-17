@@ -158,6 +158,13 @@ def main() -> int:
     check("顺序没变", names(win) == ORDER, names(win))
     check("没残留拖动状态", win.drag_index is None)
 
+    # 松手之后又来一个「没在按钮上按下过」的 release（右键菜单收起、窗口刚被
+    # 挪走之类都会递过来一个迟到的 release），不该再拉一次应用
+    fired.clear()
+    release(win.buttons[0], g)
+    QApplication.processEvents()
+    check("迟到的松手不再触发启动", len(fired) == 0, "fired=%d" % len(fired))
+
     # ---- 2. 拖到第 4 个槽位 ----------------------------------------------
     print("\n== 2. 把「应用A」拖到第 4 位 ==")
     step = win.geo.btn + win.geo.gap

@@ -216,8 +216,6 @@ class EdgeDock(QObject):
 
         if self._first_run:
             QTimer.singleShot(900, self._first_run_hint)
-        # 名单在启动时已经扫过一遍（对齐名字要用），这里只是把计时器当兜底
-        QTimer.singleShot(1400, apps_mod.installed_pool)
 
     def _on_system_theme(self, *_args) -> None:
         """系统在深色/浅色之间切换了。只有选了「跟随系统」才需要动。

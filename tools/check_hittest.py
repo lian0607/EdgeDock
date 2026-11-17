@@ -40,38 +40,47 @@ from edgedock.drawer import Geo                 # noqa: E402
 
 cfg = cfg_mod.Config()
 g = Geo(cfg)
-n = len([i for i in cfg.items if i.get("path")])
-wr = g.window_rect(n)
-print("图标 %d 个 · 面板 %dx%d · 窗口逻辑 x=%d y=%d"
-      % (n, g.panel_len(n), g.thick, wr.x(), wr.y()))
+n = len(cfg.items)
+EDGE_NAME = {"top": "顶部", "bottom": "底部", "left": "左侧", "right": "右侧"}
+edge = cfg["edge"] if cfg["edge"] in EDGE_NAME else "top"
+print("图标 %d 个 · 面板 %dx%d · 吸附在%s"
+      % (n, g.panel_len(n), g.thick, EDGE_NAME[edge]))
 
+# 沿边中点：鼠标贴在这儿才会展开。本进程是高 DPI 感知的，SetCursorPos 收的是
+# **物理**像素，所以这里要乘 DPR；写逻辑值的话会落到离边几百像素的地方。
+W_PX, H_PX = int(geo.width() * DPR), int(geo.height() * DPR)
+EDGE_POINT = {
+    "top": (W_PX // 2, 1),
+    "bottom": (W_PX // 2, H_PX - 2),
+    "left": (1, H_PX // 2),
+    "right": (W_PX - 2, H_PX // 2),
+}[edge]
 
-# 抽屉主体窗口的期望位置（物理像素）
-EXPECT_W = int(g.panel_len(n) * DPR)
-EXPECT_H = int(g.thick * DPR)
-EXPECT_X = int(wr.x() * DPR)
-EXPECT_Y = int(wr.y() * DPR)
+TITLE = "EdgeDock"          # 抽屉窗口的标题（设置窗口是「EdgeDock 设置」）
 
 
 def app_windows():
-    """按几何位置找出抽屉窗口。
+    """按标题找出抽屉窗口。
 
     不能按 PID 找：venv 的 pythonw.exe 是个启动器，真正跑界面的是它的子进程。
+    也不按几何位置找 —— 窗口比面板本身宽一圈（给悬停放大留的余量），面板
+    长度一改这里就再也匹配不上，自检会永远报 FAIL。
     """
     out = []
 
     def cb(hwnd, _lp):
         if not user32.IsWindowVisible(hwnd):
             return True
+        text = ctypes.create_unicode_buffer(256)
+        user32.GetWindowTextW(hwnd, text, 256)
+        if text.value != TITLE:
+            return True
         r = wintypes.RECT()
         user32.GetWindowRect(hwnd, ctypes.byref(r))
-        w, h = r.right - r.left, r.bottom - r.top
-        if abs(w - EXPECT_W) <= 8 and abs(h - EXPECT_H) <= 8 \
-                and abs(r.left - EXPECT_X) <= 8 and abs(r.top - EXPECT_Y) <= 8:
-            pid = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-            ex = user32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
-            out.append((int(hwnd), r, ex, pid.value))
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        ex = user32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
+        out.append((int(hwnd), r, ex, pid.value))
         return True
 
     user32.EnumWindows(ENUMPROC(cb), None)
@@ -80,7 +89,8 @@ def app_windows():
 
 subprocess.run(["taskkill", "/F", "/IM", "pythonw.exe"], capture_output=True)
 time.sleep(1.0)
-user32.SetCursorPos(int(geo.width() * 0.5 * DPR), int(geo.height() * 0.7 * DPR))
+# 鼠标挪到屏幕正中：离任何一条边都远，抽屉该老老实实收着
+user32.SetCursorPos(W_PX // 2, H_PX // 2)
 time.sleep(0.3)
 
 # 上面只清得掉 pythonw.exe 起的实例。要是还有别的 EdgeDock 在跑
@@ -118,29 +128,31 @@ def drawer_state():
     return False, None
 
 
-print("\n== 收起态（鼠标远离顶边）==")
+print("\n== 收起态（鼠标在屏幕正中，离哪条边都远）==")
 report("收起")
 found, trans = drawer_state()
 ok1 = found and trans is True
 print("  -> 抽屉应处于穿透状态: %s" % ("OK" if ok1 else "FAIL"))
 
-# 鼠标贴到屏幕顶边中央 -> 展开
-user32.SetCursorPos(int(geo.width() // 2 * DPR), 0)
+# 鼠标贴到吸附那一侧的中点 -> 展开
+user32.SetCursorPos(*EDGE_POINT)
 time.sleep(1.6)
 
-print("\n== 展开态（鼠标贴住顶边）==")
+print("\n== 展开态（鼠标贴住%s中点）==" % EDGE_NAME[edge])
 report("展开")
 found2, trans2 = drawer_state()
 ok2 = found2 and trans2 is False
 print("  -> 抽屉应可接收输入(不穿透): %s" % ("OK" if ok2 else "FAIL"))
 
-# 再确认面板确实画出来了
-img = screen.grabWindow(0).toImage()
-cx = int((wr.x() + wr.width() / 2) * DPR)
-cy = int((g.thick / 2) * DPR)
-c = img.pixelColor(cx, cy)
-print("\n  面板中心像素 (%d,%d) = #%02X%02X%02X"
-      % (cx, cy, c.red(), c.green(), c.blue()))
+# 再确认面板确实画出来了：取窗口正中那一像素（窗口是物理坐标）
+wins = app_windows()
+if wins:
+    _, r, _, _ = wins[0]
+    cx, cy = (r.left + r.right) // 2, (r.top + r.bottom) // 2
+    img = screen.grabWindow(0).toImage()
+    c = img.pixelColor(cx, cy)
+    print("\n  面板中心像素 (%d,%d) = #%02X%02X%02X"
+          % (cx, cy, c.red(), c.green(), c.blue()))
 
 ok = ok1 and ok2
 print("\n结果: %s" % ("通过 —— 拖放落点可正常命中" if ok else "失败"))

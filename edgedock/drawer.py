@@ -232,7 +232,9 @@ class IconButton(QWidget):
         self.dragMoved.emit(self, gp)
 
     def mouseReleaseEvent(self, event):
-        if event.button() != Qt.LeftButton:
+        if event.button() != Qt.LeftButton or not self._press:
+            # 没在这里按下过就不算点击：右键菜单收起、窗口刚被挪走之类的
+            # 迟到 release 不该顺手把一个应用拉起来
             return
         was_drag = self.dragging
         self._press = False

@@ -212,6 +212,25 @@ check("取消勾选的那条被移出", TWO[0]["name"] not in after10, str(after
 check("其余条目顺序不变",
       after10 == [GREEN["name"], TWO[1]["name"]], str(after10))
 
+print("== 11. 老配置（只有应用标识）照样能取消勾选 ==")
+# 那批条目的键是应用标识、根本不是文件路径，路径索引永远对不上。只靠名字才
+# 认得出 —— 之前这种条目在「取消勾选 / 全不选」之后还赖在抽屉里，用户看到
+# 的就是「勾选改了但没生效」。
+LEGACY = next((a["name"] for a in POOL
+               if sum(1 for b in POOL
+                      if apps_mod.same_name(a["name"], b["name"])) == 1),
+              SAMPLE["name"])
+cfg11 = fresh_config([{"appid": "legacy-id", "name": LEGACY}])
+dlg11 = picker(cfg11)
+item11 = row_of(dlg11, LEGACY)
+check("老条目显示成已勾选",
+      item11 is not None and item11.checkState() == Qt.Checked)
+dlg11._set_all(Qt.Unchecked)
+QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+dlg11._accept()
+left11 = [it["name"] for it in cfg_mod.Config().items]
+check("取消勾选后真的移出抽屉", left11 == [], str(left11))
+
 print("\n%s：共 %d 项，失败 %d 项" % (
     "全部通过 ✅" if FAIL == 0 else "有失败 ❌", PASS + FAIL, FAIL))
 sys.exit(1 if FAIL else 0)

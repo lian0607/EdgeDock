@@ -195,10 +195,11 @@ class IconStore(QObject):
         path_ = QPainterPath()
         path_.addRoundedRect(1, 1, physical - 2, physical - 2, r, r)
         grad = QLinearGradient(0, 0, physical, physical)
-        grad.setColorAt(0.0, QColor(255, 255, 255, 38))
-        grad.setColorAt(1.0, QColor(255, 255, 255, 16))
+        # 中性灰，不是白：浅色主题下面板就是白的，白色占位块等于什么都没画
+        grad.setColorAt(0.0, QColor(140, 144, 152, 80))
+        grad.setColorAt(1.0, QColor(140, 144, 152, 34))
         pt.fillPath(path_, grad)
-        pt.setPen(QPen(QColor(255, 255, 255, 46), max(1.0, physical / 64.0)))
+        pt.setPen(QPen(QColor(140, 144, 152, 120), max(1.0, physical / 64.0)))
         pt.drawPath(path_)
         letter = ""
         base = os.path.splitext(os.path.basename(path))[0]
@@ -211,7 +212,7 @@ class IconStore(QObject):
             f.setPixelSize(int(physical * 0.46))
             f.setBold(True)
             pt.setFont(f)
-            pt.setPen(QColor(255, 255, 255, 170))
+            pt.setPen(QColor(140, 144, 152, 235))
             pt.drawText(pm.rect(), Qt.AlignCenter, letter)
         pt.end()
         self._fallback[ck] = pm
