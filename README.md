@@ -21,8 +21,8 @@
 
 | 下载 | 说明 |
 | --- | --- |
-| **[EdgeDock-v1.1.0-win64.zip](https://github.com/lian0607/EdgeDock/releases/download/v1.1.0/EdgeDock-v1.1.0-win64.zip)** | 免安装绿色版，约 38 MB。解压出 `EdgeDock.exe`，双击就跑 |
-| **[EdgeDock-v1.1.0-source.zip](https://github.com/lian0607/EdgeDock/releases/download/v1.1.0/EdgeDock-v1.1.0-source.zip)** | 源代码。想改代码就走这个：解压后双击 `安装运行环境.bat` |
+| **[EdgeDock-v1.1.1-win64.zip](https://github.com/lian0607/EdgeDock/releases/download/v1.1.1/EdgeDock-v1.1.1-win64.zip)** | 免安装绿色版，约 38 MB。解压出 `EdgeDock.exe`，双击就跑 |
+| **[EdgeDock-v1.1.1-source.zip](https://github.com/lian0607/EdgeDock/releases/download/v1.1.1/EdgeDock-v1.1.1-source.zip)** | 源代码。想改代码就走这个：解压后双击 `安装运行环境.bat` |
 
 配置（`config.json`）和图标缓存（`cache\icons`）都写在 **exe 旁边**，整个文件夹可以随便搬、
 复制到 U 盘里也行；删掉 `config.json` 就恢复默认。
@@ -325,7 +325,7 @@ D:\Program Files (x86)\EdgeDock\
 跑完会自动把正式实例拉起来。
 
 ```bat
-.venv\Scripts\python.exe tools\check_launch.py     :: 启动链路（106 项断言，进程内）
+.venv\Scripts\python.exe tools\check_launch.py     :: 启动链路（116 项断言，进程内）
 ```
 
 不真的启动任何程序 —— 它把 `spawn`（直接起进程）、`explorer_open`、`shell_execute`
@@ -341,7 +341,7 @@ D:\Program Files (x86)\EdgeDock\
 另外现场证明了**老条目按名字反查**这条捷径真的走通（找不到时仍然老实退回 shell）。
 
 ```bat
-.venv\Scripts\python.exe tools\check_picker.py          :: 选择器（16 项断言，离屏）
+.venv\Scripts\python.exe tools\check_picker.py          :: 选择器（22 项断言，离屏）
 .venv\Scripts\python.exe tools\check_picker_visual.py   :: 勾选状态看得见（6 项，真实渲染）
 ```
 
